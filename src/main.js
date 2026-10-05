@@ -79,7 +79,7 @@ function updatePrompt() {
 
   enterButton.disabled = false;
   enterLabel.textContent = hasStarted ? 'Riprendi esplorazione' : 'Click to explore';
-  promptNote.textContent = 'Mouse orbits · Scroll zooms · Esc apre il menù';
+  promptNote.textContent = 'Mouse orbits · Shift dashes · Scroll zooms · Esc apre il menù';
 }
 
 player.onLockChange = (locked) => {
@@ -121,12 +121,16 @@ function updateOverviewFrustum() {
   const bounds = world.bounds;
   const width = bounds.maxX - bounds.minX;
   const depth = bounds.maxZ - bounds.minZ;
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
   const halfHeight = Math.max(depth / 2, width / (2 * Math.max(aspect, 0.1))) * 1.12;
   const halfWidth = halfHeight * aspect;
   overviewCamera.left = -halfWidth;
   overviewCamera.right = halfWidth;
   overviewCamera.top = halfHeight;
   overviewCamera.bottom = -halfHeight;
+  overviewCamera.position.set(centerX, 1600, centerZ);
+  overviewCamera.lookAt(centerX, 0, centerZ);
   overviewCamera.updateProjectionMatrix();
 }
 
@@ -170,6 +174,7 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.05);
 
   if (!debugMode) {
+    world.update(delta, player.position);
     player.update(delta);
     updateSectorDisplay();
   }

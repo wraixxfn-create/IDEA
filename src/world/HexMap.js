@@ -139,16 +139,50 @@ export class HexMap {
     });
     this.gateFrameMaterial = new THREE.MeshStandardMaterial({
       color: config.gateFrameColor ?? 0x22272a,
-      roughness: 0.35,
+      roughness: 0.28,
+      metalness: 0.82,
+    });
+    this.portalTrimMaterial = new THREE.MeshStandardMaterial({
+      color: 0x708186,
+      roughness: 0.28,
+      metalness: 0.86,
+    });
+    this.doorBodyMaterial = new THREE.MeshStandardMaterial({
+      color: 0x101a1e,
+      roughness: 0.24,
+      metalness: 0.88,
+    });
+    this.doorPlateMaterial = new THREE.MeshStandardMaterial({
+      color: 0x27363b,
+      roughness: 0.31,
+      metalness: 0.82,
+    });
+    this.doorInsetMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111d21,
+      roughness: 0.42,
       metalness: 0.72,
+    });
+    this.doorGrooveMaterial = new THREE.MeshStandardMaterial({
+      color: 0x080f12,
+      roughness: 0.48,
+      metalness: 0.62,
     });
     this.portalLightMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       toneMapped: false,
     });
-
     this.boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+    this.doorGlyphGeometry = new THREE.RingGeometry(0.42, 0.58, 6);
+    this.doorPartMeshes = new Map();
+    this.doorPartRecords = new Map();
+    this.doorTransform = new THREE.Object3D();
+    this.portalYawQuaternion = new THREE.Quaternion();
+    this.doorLocalYQuaternion = new THREE.Quaternion();
+    this.doorLocalZQuaternion = new THREE.Quaternion();
+    this.doorYAxis = new THREE.Vector3(0, 1, 0);
+    this.doorZAxis = new THREE.Vector3(0, 0, 1);
     this.collisionBoxes = [];
+    this.doors = [];
     this.sectorMeshes = new Map();
     this.floorMaterials = new Map();
 
@@ -194,8 +228,9 @@ export class HexMap {
 
   addBoxRecord(target, edge, offsetAlong, length, height, thickness, y, extra = {}) {
     const { axisX, axisZ, yaw } = axisForEdge(edge);
-    const centerX = edge.center.x + axisX * offsetAlong;
-    const centerZ = edge.center.z + axisZ * offsetAlong;
+    const offsetNormal = extra.offsetNormal ?? 0;
+    const centerX = edge.center.x + axisX * offsetAlong - axisZ * offsetNormal;
+    const centerZ = edge.center.z + axisZ * offsetAlong + axisX * offsetNormal;
     const record = {
       x: centerX,
       y,
@@ -227,13 +262,18 @@ export class HexMap {
   buildWallsAndGates() {
     const wallRecords = [];
     const frameRecords = [];
+    const trimRecords = [];
     const lightRecords = [];
     const { wallHeight, wallThickness, floorHeight, gateWidth, gateFrameWidth, cornerOverlap } = this.config;
     const openingHeight = Math.min(
       this.config.gateOpeningHeight ?? wallHeight * 0.7,
-      wallHeight - gateFrameWidth,
+      wallHeight - gateFrameWidth - 0.5,
     );
     const edgeLength = this.config.hexRadius;
+    const postWidth = Math.max(4.2, gateFrameWidth * 2);
+    const frameDepth = wallThickness + 1.4;
+    const frameHeight = openingHeight + gateFrameWidth;
+    const postOffset = gateWidth / 2 + postWidth / 2;
 
     if (gateWidth + 2 * gateFrameWidth >= edgeLength) {
       throw new RangeError('Gate opening and frame must fit within a hex side.');
@@ -252,65 +292,471 @@ export class HexMap {
       const extension = Math.min(cornerOverlap, panelSpan / 4);
       const panelLength = panelSpan + extension;
       const panelOffset = shoulder + panelSpan / 2 + extension / 2;
-      const frameDepth = wallThickness + 0.6;
-      const frameHeight = openingHeight + gateFrameWidth;
-      const postOffset = gateWidth / 2 + gateFrameWidth / 2;
 
       for (const side of [-1, 1]) {
         this.addBoxRecord(wallRecords, edge, side * panelOffset, panelLength,
           wallHeight, wallThickness, wallY);
-        this.addBoxRecord(frameRecords, edge, side * postOffset, gateFrameWidth,
+        // Deep, armored jambs anchor each sliding leaf to the wall.
+        this.addBoxRecord(frameRecords, edge, side * postOffset, postWidth,
           frameHeight, frameDepth, floorHeight + frameHeight / 2);
       }
-      // A solid header fills the tall wall above the actual door. Its collision
-      // matches the visible geometry, including when the player is flying.
+
+      // A solid lintel above the portal remains a real flight collision.
       const headerHeight = wallHeight - frameHeight;
       if (headerHeight > 0) {
         this.addBoxRecord(wallRecords, edge, 0, gateWidth + 2 * gateFrameWidth,
           headerHeight, wallThickness, floorHeight + frameHeight + headerHeight / 2);
       }
-      this.addBoxRecord(frameRecords, edge, 0, gateWidth, gateFrameWidth,
-        frameDepth, floorHeight + openingHeight + gateFrameWidth / 2);
 
-      // Straight, flush light strips on both faces: no crests, tubes, bulky
-      // plinths or raised thresholds intruding into the passage.
+      // A machined cross-beam and crown turn the simple opening into a massive
+      // portal housing while preserving the original walkable clear width.
+      this.addBoxRecord(frameRecords, edge, 0, gateWidth + 2 * postWidth,
+        gateFrameWidth, frameDepth, floorHeight + openingHeight + gateFrameWidth / 2);
+      this.addBoxRecord(frameRecords, edge, 0, gateWidth + 2 * postWidth + 2.4,
+        1.5, frameDepth + 1.2, floorHeight + wallHeight - 0.9,
+        { collidable: false });
+
       const normalX = -axisZ;
       const normalZ = axisX;
       for (const sectorId of [edge.aSectorId, edge.bSectorId]) {
         const sector = this.sectorById.get(sectorId);
-        const side = Math.sign(
+        const faceSign = Math.sign(
           (sector.center.x - edge.center.x) * normalX
           + (sector.center.z - edge.center.z) * normalZ,
         ) || 1;
-        const faceOffset = side * (frameDepth / 2 + 0.04);
-        const color = getSectorInfo(sector.id, sector.order).accent;
-        const face = {
-          x: edge.center.x + normalX * faceOffset,
-          z: edge.center.z + normalZ * faceOffset,
-          yaw,
-          color,
-          thickness: 0.08,
-        };
+        const faceOffset = faceSign * (frameDepth / 2 + 0.08);
+        const accent = getSectorInfo(sector.id, sector.order).accent;
+
+        // Fine metal reveals, repeated armor bands and sector-coded light rails
+        // are mounted on both faces of every portal.
         for (const postSide of [-1, 1]) {
-          lightRecords.push({ ...face,
-            x: face.x + axisX * postSide * postOffset,
-            z: face.z + axisZ * postSide * postOffset,
+          const jambX = postSide * (gateWidth / 2 + 0.38);
+          this.addBoxRecord(trimRecords, edge, jambX, 0.24,
+            openingHeight - 1.2, 0.16,
+            floorHeight + openingHeight / 2,
+            { offsetNormal: faceOffset, collidable: false });
+          this.addBoxRecord(trimRecords, edge,
+            postSide * (postOffset + postWidth * 0.34), 0.28,
+            frameHeight - 2.2, 0.14,
+            floorHeight + frameHeight / 2,
+            { offsetNormal: faceOffset, collidable: false });
+
+          for (const bandY of [floorHeight + 2.4, floorHeight + openingHeight * 0.52]) {
+            this.addBoxRecord(trimRecords, edge, postSide * postOffset, postWidth - 0.9,
+              0.28, 0.14, bandY,
+              { offsetNormal: faceOffset, collidable: false });
+          }
+
+          lightRecords.push({
+            x: 0,
             y: floorHeight + openingHeight / 2,
-            length: 0.16, height: openingHeight,
+            z: 0,
+            yaw,
+            color: accent,
+            length: 0.18,
+            height: openingHeight - 1.6,
+            thickness: 0.12,
+            offsetAlong: jambX,
+            offsetNormal: faceOffset,
+            edge,
           });
         }
-        lightRecords.push({ ...face,
-          y: floorHeight + openingHeight + gateFrameWidth / 2,
-          length: gateWidth + gateFrameWidth, height: 0.16,
+
+        this.addBoxRecord(trimRecords, edge, 0, gateWidth - 1.2,
+          0.24, 0.12, floorHeight + openingHeight - 0.62,
+          { offsetNormal: faceOffset, collidable: false });
+        lightRecords.push({
+          x: 0,
+          y: floorHeight + openingHeight - 0.7,
+          z: 0,
+          yaw,
+          color: accent,
+          length: gateWidth - 1.6,
+          height: 0.18,
+          thickness: 0.12,
+          offsetNormal: faceOffset,
+          edge,
         });
       }
     }
 
     this.wallInstancedMesh = this.createInstancedBoxes(wallRecords, this.wallMaterial, 'StructuralWalls');
-    this.frameInstancedMesh = this.createInstancedBoxes(frameRecords, this.gateFrameMaterial, 'OpenGateFrames');
-    this.portalLights = this.createInstancedBoxes(lightRecords, this.portalLightMaterial, 'PortalLightStrips');
+    this.frameInstancedMesh = this.createInstancedBoxes(frameRecords, this.gateFrameMaterial, 'PortalExoskeletons');
+    this.portalTrim = this.createInstancedBoxes(trimRecords, this.portalTrimMaterial, 'PortalArmourDetails');
+    this.portalLights = this.createPortalLightInstances(lightRecords);
     this.wallRecordCount = wallRecords.length;
     this.frameRecordCount = frameRecords.length;
+    this.trimRecordCount = trimRecords.length;
+
+    this.buildPortalCrests(frameDepth);
+    this.buildSlidingDoors(openingHeight, frameDepth);
+  }
+
+  createPortalLightInstances(records) {
+    const positionedRecords = records.map((record) => {
+      if (!record.edge) return record;
+      const { axisX, axisZ, yaw } = axisForEdge(record.edge);
+      const along = record.offsetAlong ?? 0;
+      const normal = record.offsetNormal ?? 0;
+      return {
+        ...record,
+        x: record.edge.center.x + axisX * along - axisZ * normal,
+        z: record.edge.center.z + axisZ * along + axisX * normal,
+        yaw,
+      };
+    });
+    return this.createInstancedBoxes(positionedRecords, this.portalLightMaterial, 'PortalLightStrips');
+  }
+
+  buildPortalCrests(frameDepth) {
+    this.portalCrestsGroup = new THREE.Group();
+    this.portalCrestsGroup.name = 'PortalHexCrests';
+    this.group.add(this.portalCrestsGroup);
+
+    const faceCount = this.gates.length * 2;
+    const baseMesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(2.7, 2.7, 0.72, 6),
+      this.gateFrameMaterial,
+      faceCount,
+    );
+    const ringMesh = new THREE.InstancedMesh(
+      new THREE.RingGeometry(2.12, 2.4, 6),
+      this.portalLightMaterial,
+      faceCount,
+    );
+    const coreMesh = new THREE.InstancedMesh(
+      new THREE.CircleGeometry(0.9, 6),
+      this.portalLightMaterial,
+      faceCount,
+    );
+    const chevronMesh = new THREE.InstancedMesh(
+      this.boxGeometry,
+      this.portalLightMaterial,
+      faceCount * 2,
+    );
+    baseMesh.name = 'PortalCrest_HexBases';
+    ringMesh.name = 'PortalCrest_AccentRings';
+    coreMesh.name = 'PortalCrest_Cores';
+    chevronMesh.name = 'PortalCrest_Chevrons';
+
+    const transform = new THREE.Object3D();
+    const parentRotation = new THREE.Quaternion();
+    const detailRotation = new THREE.Quaternion();
+    const rotateX = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      Math.PI / 2,
+    );
+    const rotateY = new THREE.Quaternion().setFromAxisAngle(this.doorYAxis, Math.PI);
+    let faceIndex = 0;
+    let chevronIndex = 0;
+
+    for (const edge of this.gates) {
+      const { yaw } = axisForEdge(edge);
+      const normalX = Math.sin(yaw);
+      const normalZ = Math.cos(yaw);
+      parentRotation.setFromAxisAngle(this.doorYAxis, yaw);
+
+      for (const faceSign of [-1, 1]) {
+        const sector = [edge.aSectorId, edge.bSectorId]
+          .map((id) => this.sectorById.get(id))
+          .find((candidate) => (
+            (candidate.center.x - edge.center.x) * normalX * faceSign
+            + (candidate.center.z - edge.center.z) * normalZ * faceSign
+          ) > 0);
+        const accent = getSectorInfo(sector.id, sector.order).accent;
+        const baseZ = faceSign * (frameDepth / 2 + 0.16);
+        const crestY = this.config.floorHeight + this.config.wallHeight - 4.4;
+        const crestX = edge.center.x + normalX * baseZ;
+        const crestZ = edge.center.z + normalZ * baseZ;
+
+        transform.position.set(crestX, crestY, crestZ);
+        transform.quaternion.copy(parentRotation).multiply(rotateX);
+        transform.scale.set(1, 1, 1);
+        transform.updateMatrix();
+        baseMesh.setMatrixAt(faceIndex, transform.matrix);
+
+        for (const [mesh, depthOffset] of [[ringMesh, 0.39], [coreMesh, 0.4]]) {
+          const outward = faceSign * depthOffset;
+          transform.position.set(
+            crestX + normalX * outward,
+            crestY,
+            crestZ + normalZ * outward,
+          );
+          transform.quaternion.copy(parentRotation);
+          if (faceSign < 0) transform.quaternion.multiply(rotateY);
+          transform.updateMatrix();
+          mesh.setMatrixAt(faceIndex, transform.matrix);
+          mesh.setColorAt(faceIndex, new THREE.Color(accent));
+        }
+
+        // A restrained double-chevron is kept as two tiny instanced bars per
+        // crest so the art detail costs no additional draw calls per portal.
+        for (const direction of [-1, 1]) {
+          const localX = direction * 0.18;
+          const localZ = faceSign * 0.46;
+          transform.position.set(
+            edge.center.x + normalX * baseZ + normalX * localZ + Math.cos(yaw) * localX,
+            crestY,
+            edge.center.z + normalZ * baseZ + normalZ * localZ - Math.sin(yaw) * localX,
+          );
+          detailRotation.setFromAxisAngle(this.doorZAxis, direction * 0.46);
+          transform.quaternion.copy(parentRotation);
+          if (faceSign < 0) transform.quaternion.multiply(rotateY);
+          transform.quaternion.multiply(detailRotation);
+          transform.scale.set(0.12, 0.66, 0.06);
+          transform.updateMatrix();
+          chevronMesh.setMatrixAt(chevronIndex, transform.matrix);
+          chevronMesh.setColorAt(chevronIndex, new THREE.Color(0xdafcf4));
+          chevronIndex += 1;
+        }
+        faceIndex += 1;
+      }
+    }
+
+    for (const mesh of [baseMesh, ringMesh, coreMesh, chevronMesh]) {
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+      this.portalCrestsGroup.add(mesh);
+    }
+    this.portalCrestBases = baseMesh;
+    this.portalCrestRings = ringMesh;
+    this.portalCrestCores = coreMesh;
+    this.portalCrestChevrons = chevronMesh;
+  }
+
+  addDoorPart(door, type, leafSide, faceSign, localX, localY, localZ,
+    scaleX, scaleY, scaleZ, options = {}) {
+    const part = {
+      type,
+      leafSide,
+      faceSign,
+      localX,
+      localY,
+      localZ,
+      scaleX,
+      scaleY,
+      scaleZ,
+      color: options.color,
+      rotationY: options.rotationY ?? 0,
+      rotationZ: options.rotationZ ?? 0,
+    };
+    door.parts.push(part);
+    this.doorPartRecords.get(type).push(part);
+  }
+
+  addDoorLeafParts(door, width, height, depth, openingHeight,
+    faceSign, leafSide, accentColor) {
+    const centerY = openingHeight / 2;
+    const faceZ = faceSign * (depth / 2 + 0.045);
+    const innerX = -leafSide * width * 0.27;
+
+    this.addDoorPart(door, 'body', leafSide, faceSign,
+      0, centerY, 0, width, height, depth);
+    this.addDoorPart(door, 'armour', leafSide, faceSign,
+      0, centerY, faceZ, width - 0.34, height - 0.42, 0.12);
+    this.addDoorPart(door, 'inset', leafSide, faceSign,
+      0, centerY, faceSign * (depth / 2 + 0.13), width * 0.68, height * 0.72, 0.08);
+
+    const railZ = faceSign * (depth / 2 + 0.19);
+    for (const railSide of [-1, 1]) {
+      this.addDoorPart(door, 'trim', leafSide, faceSign,
+        railSide * (width / 2 - 0.23), centerY, railZ, 0.17, height * 0.91, 0.1);
+    }
+
+    this.addDoorPart(door, 'energy', leafSide, faceSign,
+      innerX, centerY, faceSign * (depth / 2 + 0.205), 0.18, height * 0.62, 0.085,
+      { color: accentColor });
+
+    for (const seamY of [-0.31, 0.31]) {
+      this.addDoorPart(door, 'groove', leafSide, faceSign,
+        0, centerY + seamY * height, faceSign * (depth / 2 + 0.19),
+        width * 0.63, 0.105, 0.07);
+    }
+
+    // The paired, colored hex lock marks align as the two leaves meet.
+    this.addDoorPart(door, 'glyph', leafSide, faceSign,
+      innerX, centerY + height * 0.18, faceSign * (depth / 2 + 0.22),
+      1, 1, 1, { color: accentColor, rotationY: faceSign < 0 ? Math.PI : 0 });
+  }
+
+  createDoorPartInstances() {
+    const definitions = {
+      body: { geometry: this.boxGeometry, material: this.doorBodyMaterial, name: 'DoorLeaves_TitaniumCores' },
+      armour: { geometry: this.boxGeometry, material: this.doorPlateMaterial, name: 'DoorLeaves_ArmourPlates' },
+      inset: { geometry: this.boxGeometry, material: this.doorInsetMaterial, name: 'DoorLeaves_RecessedPanels' },
+      trim: { geometry: this.boxGeometry, material: this.portalTrimMaterial, name: 'DoorLeaves_EdgeRails' },
+      energy: { geometry: this.boxGeometry, material: this.portalLightMaterial, name: 'DoorLeaves_EnergySpines' },
+      groove: { geometry: this.boxGeometry, material: this.doorGrooveMaterial, name: 'DoorLeaves_ArmourSeams' },
+      glyph: { geometry: this.doorGlyphGeometry, material: this.portalLightMaterial, name: 'DoorLeaves_HexLockGlyphs' },
+    };
+
+    for (const [type, definition] of Object.entries(definitions)) {
+      const records = this.doorPartRecords.get(type);
+      const mesh = new THREE.InstancedMesh(definition.geometry, definition.material, records.length);
+      mesh.name = definition.name;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      records.forEach((record, index) => {
+        record.instanceIndex = index;
+        if (record.color !== undefined) mesh.setColorAt(index, new THREE.Color(record.color));
+      });
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      this.doorPartMeshes.set(type, mesh);
+      this.group.add(mesh);
+    }
+  }
+
+  buildSlidingDoors(openingHeight, frameDepth) {
+    const gateWidth = this.config.gateWidth;
+    const leafWidth = gateWidth / 2 + 0.36;
+    const leafHeight = openingHeight - 0.38;
+    const leafDepth = 1.05;
+    const slideDistance = gateWidth * 0.96;
+    const faceOffset = frameDepth / 2 - leafDepth / 2 + 0.12;
+    this.doorPartRecords = new Map(
+      ['body', 'armour', 'inset', 'trim', 'energy', 'groove', 'glyph']
+        .map((type) => [type, []]),
+    );
+
+    for (const edge of this.gates) {
+      const { axisX, axisZ, yaw } = axisForEdge(edge);
+      const normalX = -axisZ;
+      const normalZ = axisX;
+      const sectors = [edge.aSectorId, edge.bSectorId].map((id) => this.sectorById.get(id));
+      const positiveSector = sectors.find((sector) => (
+        (sector.center.x - edge.center.x) * normalX
+        + (sector.center.z - edge.center.z) * normalZ
+      ) > 0);
+      const negativeSector = sectors.find((sector) => sector !== positiveSector);
+      const portal = new THREE.Group();
+      portal.name = `SlidingPortal_${edge.id}`;
+      portal.position.set(edge.center.x, this.config.floorHeight, edge.center.z);
+      portal.rotation.y = yaw;
+      this.group.add(portal);
+
+      const door = {
+        edge,
+        portal,
+        axisX,
+        axisZ,
+        openAmount: 0,
+        closeTimer: 0,
+        slideDistance,
+        faceOffset,
+        parts: [],
+        collisionBoxes: [],
+      };
+
+      for (const faceSign of [-1, 1]) {
+        const sector = faceSign > 0 ? positiveSector : negativeSector;
+        const accentColor = getSectorInfo(sector.id, sector.order).accent;
+        for (const leafSide of [-1, 1]) {
+          this.addDoorLeafParts(
+            door,
+            leafWidth,
+            leafHeight,
+            leafDepth,
+            openingHeight,
+            faceSign,
+            leafSide,
+            accentColor,
+          );
+        }
+      }
+
+      for (const leafSide of [-1, 1]) {
+        const collisionBox = {
+          x: edge.center.x + axisX * leafSide * gateWidth / 4,
+          z: edge.center.z + axisZ * leafSide * gateWidth / 4,
+          axisX,
+          axisZ,
+          halfLength: leafWidth / 2,
+          halfThickness: (this.config.wallThickness + 0.28) / 2,
+          minY: this.config.floorHeight,
+          maxY: this.config.floorHeight + openingHeight,
+          door,
+          leafSide,
+        };
+        door.collisionBoxes.push(collisionBox);
+        this.collisionBoxes.push(collisionBox);
+      }
+
+      this.doors.push(door);
+    }
+
+    this.createDoorPartInstances();
+    // Shared instance matrices stay current even before the first animation tick.
+    for (const door of this.doors) this.syncSlidingDoor(door);
+    this.flushDoorPartMatrices();
+  }
+
+  syncSlidingDoor(door) {
+    const centerOffset = this.config.gateWidth / 4 + door.openAmount * door.slideDistance;
+    for (const box of door.collisionBoxes) {
+      const offset = box.leafSide * centerOffset;
+      box.x = door.edge.center.x + door.axisX * offset;
+      box.z = door.edge.center.z + door.axisZ * offset;
+    }
+
+    this.portalYawQuaternion.setFromAxisAngle(this.doorYAxis, door.portal.rotation.y);
+    for (const part of door.parts) {
+      const mesh = this.doorPartMeshes.get(part.type);
+      if (!mesh) continue;
+      const localX = part.leafSide * centerOffset + part.localX;
+      const localZ = part.faceSign * door.faceOffset + part.localZ;
+      const transform = this.doorTransform;
+      transform.position.set(
+        door.edge.center.x + door.axisX * localX - door.axisZ * localZ,
+        this.config.floorHeight + part.localY,
+        door.edge.center.z + door.axisZ * localX + door.axisX * localZ,
+      );
+      transform.quaternion.copy(this.portalYawQuaternion);
+      if (part.rotationY) {
+        this.doorLocalYQuaternion.setFromAxisAngle(this.doorYAxis, part.rotationY);
+        transform.quaternion.multiply(this.doorLocalYQuaternion);
+      }
+      if (part.rotationZ) {
+        this.doorLocalZQuaternion.setFromAxisAngle(this.doorZAxis, part.rotationZ);
+        transform.quaternion.multiply(this.doorLocalZQuaternion);
+      }
+      transform.scale.set(part.scaleX, part.scaleY, part.scaleZ);
+      transform.updateMatrix();
+      mesh.setMatrixAt(part.instanceIndex, transform.matrix);
+    }
+  }
+
+  flushDoorPartMatrices() {
+    for (const mesh of this.doorPartMeshes.values()) mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  update(deltaSeconds, playerPosition) {
+    if (!playerPosition) return;
+    const dt = Math.max(0, deltaSeconds);
+    const openRadius = this.config.doorOpenRadius ?? 48;
+    const closeDelay = this.config.doorCloseDelay ?? 1.05;
+    const motionSpeed = this.config.doorMotionSpeed ?? 3.2;
+    let matricesDirty = false;
+
+    for (const door of this.doors) {
+      const distance = Math.hypot(
+        playerPosition.x - door.edge.center.x,
+        playerPosition.z - door.edge.center.z,
+      );
+      if (distance <= openRadius) {
+        door.closeTimer = closeDelay;
+      } else {
+        door.closeTimer = Math.max(0, door.closeTimer - dt);
+      }
+
+      const target = door.closeTimer > 0 ? 1 : 0;
+      const change = Math.min(Math.abs(target - door.openAmount), motionSpeed * dt);
+      if (change === 0) continue;
+      door.openAmount += Math.sign(target - door.openAmount) * change;
+      this.syncSlidingDoor(door);
+      matricesDirty = true;
+    }
+    if (matricesDirty) this.flushDoorPartMatrices();
   }
 
   createInstancedBoxes(records, material, name) {

@@ -38,28 +38,53 @@ function pointOnEdge(edge, distanceAlong, distanceNormal = 0) {
   };
 }
 
-test('one reusable map generates seven floors, twelve gates and a closed outside boundary', () => {
+test('map builds eight sectors, a closed perimeter and detailed animated portals', () => {
   const map = makeMap();
-  assert.equal(map.sectors.length, 7);
-  assert.equal(map.sectorMeshes.size, 7);
-  assert.equal(map.gates.length, 12);
-  assert.equal(map.boundaryEdges.length, 18);
-  assert.equal(map.wallInstancedMesh.count, 54);
-  assert.equal(map.frameInstancedMesh.count, 36);
-  assert.equal(map.portalLights.count, 72, 'three slim light strips on each face of twelve gates');
-  assert.equal(map.group.getObjectByName('PortalHexCrests'), undefined);
-  assert.equal(map.group.getObjectByName('PortalBevelledBezels'), undefined);
+  assert.equal(map.sectors.length, 8);
+  assert.equal(map.sectorMeshes.size, 8);
+  assert.equal(map.gates.length, 14);
+  assert.equal(map.boundaryEdges.length, 20);
+  assert.equal(map.wallInstancedMesh.count, 62);
+  assert.equal(map.frameInstancedMesh.count, 56);
+  assert.equal(map.portalTrim.count, 252);
+  assert.equal(map.portalLights.count, 84, 'three sector-coded light strips on both faces of fourteen portals');
+  assert.equal(map.doors.length, 14);
+  assert.ok(map.group.getObjectByName('PortalHexCrests'));
+  assert.equal(map.portalCrestBases.count, 28, 'one hex crest faces each adjoining sector');
+  assert.equal(map.group.getObjectByName('DoorLeaves_TitaniumCores').count, 56);
+  assert.equal(map.group.getObjectByName('DoorLeaves_HexLockGlyphs').count, 56);
+  assert.equal(map.doors[0].openAmount, 0, 'portals begin sealed until approached');
   assert.equal(map.debugGroup.visible, false);
   for (const sector of map.sectors) {
     assert.equal(map.getFloorHeightAt(sector.center.x, sector.center.z), MAP_CONFIG.floorHeight);
   }
 });
 
-test('each shared full side is physically open at its center and blocked beside the opening', () => {
+test('sliding portal leaves open on approach and return to a collidable seal after a delay', () => {
+  const map = makeMap();
+  const gate = map.gates[0];
+  const door = map.doors.find((candidate) => candidate.edge.id === gate.id);
+  const closed = map.resolveHorizontalPosition(gate.center.x, gate.center.z, PLAYER_CONFIG.radius);
+  assert.ok(Math.hypot(closed.x - gate.center.x, closed.z - gate.center.z) > 0.5);
+
+  for (let frame = 0; frame < 5; frame += 1) map.update(0.1, gate.center);
+  assert.ok(door.openAmount > 0.95, 'door leaves finish retracting smoothly');
+  const open = map.resolveHorizontalPosition(gate.center.x, gate.center.z, PLAYER_CONFIG.radius);
+  assert.ok(Math.hypot(open.x - gate.center.x, open.z - gate.center.z) < 1e-6);
+
+  const farAway = { x: gate.center.x + MAP_CONFIG.doorOpenRadius + 80, z: gate.center.z };
+  map.update(MAP_CONFIG.doorCloseDelay + 0.5, farAway);
+  assert.equal(door.openAmount, 0);
+  const sealed = map.resolveHorizontalPosition(gate.center.x, gate.center.z, PLAYER_CONFIG.radius);
+  assert.ok(Math.hypot(sealed.x - gate.center.x, sealed.z - gate.center.z) > 0.5);
+});
+
+test('each shared portal is passable when its sliding leaves retract and blocked beside the opening', () => {
   const map = makeMap();
   const playerRadius = PLAYER_CONFIG.radius;
 
   for (const gate of map.gates) {
+    map.update(1, gate.center);
     for (const side of [-10, 0, 10]) {
       const passagePoint = pointOnEdge(gate, 0, side);
       const passageResult = map.resolveHorizontalPosition(passagePoint.x, passagePoint.z, playerRadius);
@@ -92,6 +117,7 @@ test('every gate supports a wall-collided center-to-center route', () => {
     let z = start.z;
 
     for (let i = 0; i < steps; i += 1) {
+      map.update(1 / 60, { x, z });
       let resolved = map.resolveHorizontalPosition(x + stepX, z, PLAYER_CONFIG.radius);
       x = resolved.x;
       resolved = map.resolveHorizontalPosition(x, z + stepZ, PLAYER_CONFIG.radius);
@@ -150,9 +176,9 @@ test('every sector has a distinct floor color and gates are narrower', () => {
 });
 
 
-test('floors have no dark central mini hexagons and walls are three times taller', () => {
+test('floors have no dark central mini hexagons and walls use the requested 45-unit height', () => {
   const map = makeMap();
-  assert.equal(MAP_CONFIG.wallHeight, 90);
+  assert.equal(MAP_CONFIG.wallHeight, 45);
   for (const sector of map.sectors) {
     assert.equal(map.group.getObjectByName(`FloorCenter_${sector.id}`), undefined);
   }
@@ -165,10 +191,11 @@ test('floors have no dark central mini hexagons and walls are three times taller
   assert.equal(position.y + scale.y / 2, MAP_CONFIG.floorHeight + MAP_CONFIG.wallHeight);
 });
 
-test('door headers block flight while the full visible opening stays passable', () => {
+test('door headers block flight while an opened sliding doorway stays passable', () => {
   const map = makeMap();
   for (const gate of map.gates) {
     const point = pointOnEdge(gate, 0);
+    map.update(1, point);
     const below = map.resolveHorizontalPosition(point.x, point.z, PLAYER_CONFIG.radius,
       MAP_CONFIG.gateOpeningHeight - PLAYER_CONFIG.height - 0.1, PLAYER_CONFIG.height);
     assert.ok(Math.hypot(below.x - point.x, below.z - point.z) < 1e-6, gate.id);
