@@ -10,6 +10,7 @@ const enterLabel = document.querySelector('#enter-label');
 const promptNote = document.querySelector('#prompt-note');
 const experiencePrompt = document.querySelector('#experience-prompt');
 const debugState = document.querySelector('#debug-state');
+const flightState = document.querySelector('#flight-state');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(MAP_CONFIG.backgroundColor);
@@ -53,6 +54,9 @@ function updatePrompt() {
   const shouldShow = !debugMode && !locked;
   experiencePrompt.classList.toggle('is-hidden', !shouldShow);
   debugState.classList.toggle('is-visible', debugMode);
+  const showFlightState = player.isFlying && player.isLocked && !debugMode;
+  flightState.classList.toggle('is-visible', showFlightState);
+  flightState.setAttribute('aria-hidden', String(!showFlightState));
 
   if (debugMode) {
     enterLabel.textContent = 'Debug overview active';
@@ -63,15 +67,14 @@ function updatePrompt() {
 
   enterButton.disabled = false;
   enterLabel.textContent = hasStarted ? 'Click to resume' : 'Click to explore';
-  promptNote.textContent = hasStarted
-    ? 'Mouse look captures the pointer · Press Esc to release'
-    : 'Mouse look captures the pointer · Press Esc to release';
+  promptNote.textContent = 'Mouse orbits · Scroll zooms · Esc releases pointer';
 }
 
 player.onLockChange = (locked) => {
   if (locked) hasStarted = true;
   updatePrompt();
 };
+player.onFlightChange = () => updatePrompt();
 
 enterButton.addEventListener('click', () => {
   if (!debugMode) player.requestPointerLock();
@@ -143,6 +146,7 @@ function animate() {
     player.update(delta);
     updateSectorDisplay();
   }
+  world.update(clock.elapsedTime);
   world.updateDebugPlayer(player.position);
   renderer.render(scene, debugMode ? overviewCamera : camera);
 }

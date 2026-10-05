@@ -106,6 +106,73 @@ function axisForEdge(edge) {
   };
 }
 
+function createPortalBezelGeometry(gateWidth, frameWidth, wallHeight) {
+  const outerHalf = gateWidth / 2 + frameWidth + 1.4;
+  const innerHalf = gateWidth / 2 + 0.42;
+  const crownHeight = wallHeight + 1.15;
+  const innerTop = wallHeight - 2.1;
+  const outerChamfer = 3.2;
+  const innerChamfer = 1.6;
+  const shape = new THREE.Shape();
+
+  // A single clipped-corner, U-shaped surround creates a solid architectural
+  // bezel around the existing structural posts without closing the passage.
+  shape.moveTo(-outerHalf, 0);
+  shape.lineTo(-outerHalf, crownHeight - outerChamfer);
+  shape.lineTo(-outerHalf + outerChamfer, crownHeight);
+  shape.lineTo(outerHalf - outerChamfer, crownHeight);
+  shape.lineTo(outerHalf, crownHeight - outerChamfer);
+  shape.lineTo(outerHalf, 0);
+  shape.lineTo(innerHalf, 0);
+  shape.lineTo(innerHalf, innerTop - innerChamfer);
+  shape.lineTo(innerHalf - innerChamfer, innerTop);
+  shape.lineTo(-innerHalf + innerChamfer, innerTop);
+  shape.lineTo(-innerHalf, innerTop - innerChamfer);
+  shape.lineTo(-innerHalf, 0);
+  shape.closePath();
+
+  const depth = 0.9;
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelSegments: 2,
+    steps: 1,
+    bevelSize: 0.16,
+    bevelThickness: 0.14,
+    curveSegments: 2,
+  });
+  geometry.translate(0, 0, -depth / 2);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createPortalLightGeometry(gateWidth, openingHeight) {
+  const halfWidth = gateWidth / 2 - 0.85;
+  const cornerCut = 1.8;
+  const points = [
+    new THREE.Vector3(-halfWidth, 0.55, 0),
+    new THREE.Vector3(-halfWidth, openingHeight - cornerCut, 0),
+    new THREE.Vector3(-halfWidth + cornerCut, openingHeight - 0.35, 0),
+    new THREE.Vector3(halfWidth - cornerCut, openingHeight - 0.35, 0),
+    new THREE.Vector3(halfWidth, openingHeight - cornerCut, 0),
+    new THREE.Vector3(halfWidth, 0.55, 0),
+  ];
+  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+  const geometry = new THREE.TubeGeometry(curve, 72, 0.19, 7, false);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createPortalCrestGeometry() {
+  const geometry = new THREE.CylinderGeometry(1.7, 1.7, 0.62, 6, 1);
+  geometry.rotateX(Math.PI / 2);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 export class HexMap {
   constructor(scene, config) {
     this.config = config;
@@ -171,8 +238,27 @@ export class HexMap {
       roughness: 0.75,
       metalness: 0.18,
     });
+    this.portalLightMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      toneMapped: false,
+    });
+    this.portalCrestMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.3,
+      metalness: 0.76,
+    });
 
     this.boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+    this.portalBezelGeometry = createPortalBezelGeometry(
+      config.gateWidth,
+      config.gateFrameWidth,
+      config.wallHeight,
+    );
+    this.portalLightGeometry = createPortalLightGeometry(
+      config.gateWidth,
+      config.gateOpeningHeight ?? config.wallHeight * 0.7,
+    );
+    this.portalCrestGeometry = createPortalCrestGeometry();
     this.collisionBoxes = [];
     this.sectorMeshes = new Map();
     this.floorMaterials = new Map();
@@ -245,6 +331,8 @@ export class HexMap {
         axisZ,
         halfLength: length / 2,
         halfThickness: thickness / 2,
+        minY: y - height / 2,
+        maxY: y + height / 2,
       });
     }
 
@@ -262,8 +350,15 @@ export class HexMap {
     const transomBeamRecords = [];
     const transomGlowRecords = [];
     const transomPanelRecords = [];
+    const portalBezelRecords = [];
+    const portalLightRecords = [];
+    const portalCrestRecords = [];
 
     const { wallHeight, wallThickness, floorHeight, gateWidth, gateFrameWidth, cornerOverlap } = this.config;
+    const openingHeight = Math.min(
+      this.config.gateOpeningHeight ?? wallHeight * 0.7,
+      wallHeight - gateFrameWidth * 1.5,
+    );
     const edgeLength = this.config.hexRadius;
 
     if (gateWidth + 2 * gateFrameWidth >= edgeLength) {
@@ -286,11 +381,48 @@ export class HexMap {
     }
 
     // Shared edges / Gates:
-    // Narrower opening with bold, sculptural architectural framing
+    // Layered, sector-colored portal hardware sits on both faces of each opening.
     const postDepth = wallThickness + 2.2;
     const postOffset = gateWidth / 2 + gateFrameWidth / 2;
 
     for (const edge of this.gates) {
+      const { axisX, axisZ, yaw } = axisForEdge(edge);
+      const normalX = -axisZ;
+      const normalZ = axisX;
+      const sectorA = this.sectorById.get(edge.aSectorId);
+      const sectorB = this.sectorById.get(edge.bSectorId);
+      const aSide = Math.sign(
+        (sectorA.center.x - edge.center.x) * normalX
+        + (sectorA.center.z - edge.center.z) * normalZ,
+      ) || 1;
+      const portalFaceOffset = postDepth / 2 + 0.38;
+
+      for (const [side, sector] of [[aSide, sectorA], [-aSide, sectorB]]) {
+        const accent = getSectorInfo(sector.id, sector.order).accent;
+        const faceX = edge.center.x + normalX * side * portalFaceOffset;
+        const faceZ = edge.center.z + normalZ * side * portalFaceOffset;
+        portalBezelRecords.push({
+          x: faceX,
+          y: floorHeight,
+          z: faceZ,
+          yaw,
+        });
+        portalLightRecords.push({
+          x: faceX + normalX * side * 0.62,
+          y: floorHeight,
+          z: faceZ + normalZ * side * 0.62,
+          yaw,
+          color: accent,
+        });
+        portalCrestRecords.push({
+          x: faceX + normalX * side * 0.62,
+          y: floorHeight + wallHeight + 1.6,
+          z: faceZ + normalZ * side * 0.62,
+          yaw,
+          color: accent,
+        });
+      }
+
       const shoulder = gateWidth / 2 + gateFrameWidth;
       const panelSpan = edgeLength / 2 - shoulder;
       const outerExtension = Math.min(cornerOverlap, panelSpan / 4);
@@ -400,63 +532,67 @@ export class HexMap {
         { collidable: false },
       );
 
-      // 5. Vertical illuminated jamb neon strips
-      const jambOffset = gateWidth / 2 - 0.2;
-      const jambHeight = wallHeight - 4.5;
+      // 5. Bright jamb strips define the usable opening rather than the full wall.
+      const jambOffset = gateWidth / 2 - 0.32;
+      const jambHeight = openingHeight - 1.2;
+      const jambCenterY = floorHeight + jambHeight / 2 + 0.6;
       this.addBoxRecord(
         jambGlowRecords,
         edge,
         -jambOffset,
-        0.4,
+        0.46,
         jambHeight,
         postDepth * 0.7,
-        floorHeight + jambHeight / 2 + 1.5,
+        jambCenterY,
         { collidable: false },
       );
       this.addBoxRecord(
         jambGlowRecords,
         edge,
         jambOffset,
-        0.4,
+        0.46,
         jambHeight,
         postDepth * 0.7,
-        floorHeight + jambHeight / 2 + 1.5,
+        jambCenterY,
         { collidable: false },
       );
 
-      // 6. Mid-height transom architrave beam (height 19)
+      // 6. Deep transom beam, lifted to create a clearer, more human-scaled door.
+      const transomHeight = 1.8;
       this.addBoxRecord(
         transomBeamRecords,
         edge,
         0,
         gateWidth + 2 * gateFrameWidth,
-        2.0,
+        transomHeight,
         postDepth + 0.8,
-        floorHeight + 19,
+        floorHeight + openingHeight + transomHeight / 2,
         { collidable: false },
       );
 
-      // 7. Luminous under-glow strip on the transom beam
+      // 7. Luminous threshold across the top of the open passage.
       this.addBoxRecord(
         transomGlowRecords,
         edge,
         0,
         gateWidth,
-        0.32,
+        0.28,
         1.2,
-        floorHeight + 17.85,
+        floorHeight + openingHeight + 0.03,
         { collidable: false },
       );
 
-      // 8. Upper architectural infill panel above transom beam
+      // 8. Inset header panel above the clear opening.
+      const panelBase = openingHeight + transomHeight;
+      const panelHeight = Math.max(1, wallHeight - panelBase - 0.8);
       this.addBoxRecord(
         transomPanelRecords,
         edge,
         0,
         gateWidth + 0.4,
-        8.5,
+        panelHeight,
         wallThickness,
-        floorHeight + 24.5,
+        floorHeight + panelBase + panelHeight / 2,
         { collidable: false },
       );
     }
@@ -516,6 +652,47 @@ export class HexMap {
       this.transomPanelMaterial,
       'PortalTransomPanels',
     );
+    this.portalBezels = this.createInstancedGeometry(
+      this.portalBezelGeometry,
+      this.gateTrimMaterial,
+      portalBezelRecords,
+      'PortalBevelledBezels',
+    );
+    this.portalLightRings = this.createInstancedGeometry(
+      this.portalLightGeometry,
+      this.portalLightMaterial,
+      portalLightRecords,
+      'PortalSectorLightRings',
+    );
+    this.portalCrests = this.createInstancedGeometry(
+      this.portalCrestGeometry,
+      this.portalCrestMaterial,
+      portalCrestRecords,
+      'PortalHexCrests',
+    );
+  }
+
+  createInstancedGeometry(geometry, material, records, name) {
+    const mesh = new THREE.InstancedMesh(geometry, material, records.length);
+    mesh.name = name;
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    const transform = new THREE.Object3D();
+
+    records.forEach((record, index) => {
+      transform.position.set(record.x, record.y, record.z);
+      transform.rotation.set(0, record.yaw, 0);
+      transform.scale.setScalar(record.scale ?? 1);
+      transform.updateMatrix();
+      mesh.setMatrixAt(index, transform.matrix);
+      if (record.color !== undefined) mesh.setColorAt(index, new THREE.Color(record.color));
+    });
+
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
+    this.group.add(mesh);
+    return mesh;
   }
 
   createInstancedBoxes(records, material, name) {
@@ -629,6 +806,11 @@ export class HexMap {
     this.debugGroup.visible = visible;
   }
 
+  update(elapsedSeconds = 0) {
+    const pulse = 1.42 + (Math.sin(elapsedSeconds * 1.8) + 1) * 0.22;
+    this.gateGlowMaterial.emissiveIntensity = pulse;
+  }
+
   updateDebugPlayer(position) {
     if (!this.playerMarker) return;
     this.playerMarker.position.set(position.x, position.y + 2.5, position.z);
@@ -664,7 +846,13 @@ export class HexMap {
     return null;
   }
 
-  resolveHorizontalPosition(x, z, radius) {
+  resolveHorizontalPosition(
+    x,
+    z,
+    radius,
+    playerBottomY = this.config.floorHeight,
+    playerHeight = 1.8,
+  ) {
     let resolvedX = x;
     let resolvedZ = z;
 
@@ -674,6 +862,10 @@ export class HexMap {
       let changed = false;
 
       for (const box of this.collisionBoxes) {
+        const overlapsVertically = playerBottomY < box.maxY
+          && playerBottomY + playerHeight > box.minY;
+        if (!overlapsVertically) continue;
+
         const deltaX = resolvedX - box.x;
         const deltaZ = resolvedZ - box.z;
         const along = deltaX * box.axisX + deltaZ * box.axisZ;

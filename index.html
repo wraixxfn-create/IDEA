@@ -29,11 +29,12 @@
         <div class="control-strip" aria-label="Controls">
           <div class="control-row"><span class="key-cluster"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>move</span></div>
           <div class="control-row"><kbd class="wide-key">SHIFT</kbd><span>sprint</span></div>
-          <div class="control-row"><span class="mouse-glyph" aria-hidden="true">↕</span><span>look around</span></div>
+          <div class="control-row"><span class="mouse-glyph" aria-hidden="true">↕</span><span>orbit camera</span></div>
+          <div class="control-row"><kbd class="wide-key">SCROLL</kbd><span>zoom</span></div>
+          <div class="control-row"><kbd class="wide-key">SPACE × 2</kbd><span>toggle flight</span></div>
+          <div class="control-row"><kbd class="wide-key flight-keys">SPACE / CTRL</kbd><span>rise / descend</span></div>
           <div class="control-row debug-control"><kbd class="wide-key">F3</kbd><span>debug overview</span></div>
         </div>
-
-        <div class="center-reticle" aria-hidden="true"><span></span></div>
 
         <div id="experience-prompt" class="experience-prompt" role="status" aria-live="polite">
           <button id="enter-world" class="enter-button" type="button">
@@ -41,7 +42,7 @@
             <span id="enter-label">Click to explore</span>
             <span class="enter-arrow" aria-hidden="true">→</span>
           </button>
-          <p id="prompt-note">Mouse look captures the pointer · Press Esc to release</p>
+          <p id="prompt-note">Mouse orbits · Scroll zooms · Esc releases pointer</p>
         </div>
 
         <div id="debug-state" class="debug-state" aria-live="polite">
@@ -50,10 +51,16 @@
           <span class="debug-state-divider">/</span>
           F3 TO RETURN
         </div>
+        <div id="flight-state" class="flight-state" aria-live="polite" aria-hidden="true">
+          <span class="flight-dot" aria-hidden="true"></span>
+          FLIGHT MODE
+          <span class="debug-state-divider">/</span>
+          DOUBLE SPACE TO LAND
+        </div>
 
         <div class="hud hud-bottom">
           <div class="footer-label"><span class="footer-rule"></span>EMPTY WORLD / OPEN GEOMETRY</div>
-          <div class="footer-label footer-right">WALK · LOOK · EXPLORE <span class="footer-coordinate">—</span></div>
+          <div class="footer-label footer-right">WALK · FLY · EXPLORE <span class="footer-coordinate">—</span></div>
         </div>
       </div>
     </main>
