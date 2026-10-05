@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { buildHexMapData, getHexVertices, isPointInsideHex } from './hexGrid.js';
 import { getSectorColor, getSectorInfo } from '../config/mapConfig.js';
 import { buildPineGrove } from './PineGrove.js';
+import { createHexDomeGeometry, createHexDomeRibGeometry, hexBoundaryDistanceAtAngle } from './hexGeometry.js';
+import { SkyDome, resolveSunDirection } from './SkyDome.js';
+import { buildForestFloorDetail, buildForestMist } from './ForestDetail.js';
+import { createWindUniforms } from './wind.js';
 
 function createFloorGeometry(radius) {
   const vertices = getHexVertices(0, 0, radius);
@@ -26,15 +30,6 @@ function smoothStep(value, start, end) {
   if (end <= start) return value >= end ? 1 : 0;
   const t = THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
   return t * t * (3 - 2 * t);
-}
-
-function hexBoundaryDistanceAtAngle(radius, angle) {
-  const apothem = radius * Math.sqrt(3) / 2;
-  // The side normals are at 30-degree increments. Projecting the ray onto
-  // the nearest normal gives the exact intersection with the flat-top hex.
-  const nearestNormal = Math.round((angle - Math.PI / 6) / (Math.PI / 3))
-    * (Math.PI / 3) + Math.PI / 6;
-  return apothem / Math.cos(angle - nearestNormal);
 }
 
 function distanceToHexEdge(x, z, radius) {
@@ -72,12 +67,51 @@ function forestTerrainOffset(x, z, radius, config) {
   return (config.forestTerrainAmplitude ?? 8.5) * edgeMask * centerMask * wave;
 }
 
+const SOIL_BASE_TINT = new THREE.Color(1, 1, 1);
+const SOIL_MOSS_TINT = new THREE.Color(0.62, 1.04, 0.58);
+const SOIL_DRY_TINT = new THREE.Color(1.24, 1.06, 0.76);
+const SOIL_HUMUS_TINT = new THREE.Color(0.68, 0.66, 0.66);
+const soilScratch = new THREE.Color();
+
+/**
+ * Per-vertex soil shading for the forest floor: mossy hollows, sun-bleached
+ * leaf drifts and damp humus. The result is multiplied into the shared soil
+ * colour, so the biome keeps its identity while the ground stops reading as a
+ * single flat brown plane.
+ */
+function forestSoilTintAt(x, z, height) {
+  const patch = (
+    Math.sin(x * 0.052 + 1.7) * Math.cos(z * 0.041 - 0.9)
+    + 0.55 * Math.sin((x + z) * 0.026 + 2.4)
+    + 0.35 * Math.cos((x - z) * 0.083)
+  ) / 1.9;
+  const dryness = (
+    Math.sin(x * 0.031 - 0.4) * Math.sin(z * 0.037 + 1.1)
+    + 0.5 * Math.cos((x * 0.7 + z) * 0.045)
+  ) / 1.5;
+  const mossAmount = THREE.MathUtils.smoothstep(patch, 0.12, 0.72);
+  const dryAmount = THREE.MathUtils.smoothstep(dryness, 0.08, 0.78);
+  const hollowAmount = THREE.MathUtils.smoothstep(-height, 0.6, 5.5);
+
+  soilScratch.copy(SOIL_BASE_TINT);
+  soilScratch.lerp(SOIL_MOSS_TINT, mossAmount * 0.85);
+  soilScratch.lerp(SOIL_DRY_TINT, dryAmount * 0.5);
+  soilScratch.lerp(SOIL_HUMUS_TINT, hollowAmount * 0.4);
+  return soilScratch;
+}
+
 function createForestTerrainGeometry(radius, config) {
-  const radialSegments = 18;
-  const ringCount = 11;
+  const radialSegments = 24;
+  const ringCount = 15;
   const sampleCount = radialSegments * 6;
   const positions = [0, forestTerrainOffset(0, 0, radius, config), 0];
+  const colors = [];
   const indices = [];
+  const pushColor = (x, y, z) => {
+    const tint = forestSoilTintAt(x, z, y);
+    colors.push(tint.r, tint.g, tint.b);
+  };
+  pushColor(0, positions[1], 0);
 
   for (let ring = 1; ring <= ringCount; ring += 1) {
     const radialScale = ring / ringCount;
@@ -86,7 +120,9 @@ function createForestTerrainGeometry(radius, config) {
       const boundary = hexBoundaryDistanceAtAngle(radius, angle);
       const x = Math.cos(angle) * boundary * radialScale;
       const z = Math.sin(angle) * boundary * radialScale;
-      positions.push(x, forestTerrainOffset(x, z, radius, config), z);
+      const y = forestTerrainOffset(x, z, radius, config);
+      positions.push(x, y, z);
+      pushColor(x, y, z);
     }
   }
 
@@ -113,6 +149,7 @@ function createForestTerrainGeometry(radius, config) {
   const geometry = new THREE.BufferGeometry();
   geometry.name = 'ForestTerrainGeometry_HEX_S';
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
@@ -139,101 +176,6 @@ function createLeafGeometry() {
   geometry.name = 'LeafLitterLeafGeometry';
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.computeVertexNormals();
-  return geometry;
-}
-
-function createHexDomeGeometry(radius, baseHeight, domeHeight, radialSegments, verticalSegments) {
-  const sampleCount = radialSegments * 6;
-  const positions = [];
-  const indices = [];
-  const rings = [];
-
-  for (let row = 0; row < verticalSegments; row += 1) {
-    const progress = row / verticalSegments;
-    const profile = Math.cos(progress * Math.PI / 2);
-    const y = baseHeight + Math.sin(progress * Math.PI / 2) * domeHeight;
-    const ringStart = positions.length / 3;
-    rings.push(ringStart);
-    for (let sample = 0; sample < sampleCount; sample += 1) {
-      const angle = sample / sampleCount * Math.PI * 2;
-      const boundary = hexBoundaryDistanceAtAngle(radius, angle);
-      positions.push(
-        Math.cos(angle) * boundary * profile,
-        y,
-        Math.sin(angle) * boundary * profile,
-      );
-    }
-  }
-
-  const apexIndex = positions.length / 3;
-  positions.push(0, baseHeight + domeHeight, 0);
-  for (let row = 0; row < rings.length - 1; row += 1) {
-    const innerStart = rings[row];
-    const outerStart = rings[row + 1];
-    for (let sample = 0; sample < sampleCount; sample += 1) {
-      const next = (sample + 1) % sampleCount;
-      const inner = innerStart + sample;
-      const innerNext = innerStart + next;
-      const outer = outerStart + sample;
-      const outerNext = outerStart + next;
-      indices.push(inner, outer, outerNext);
-      indices.push(inner, outerNext, innerNext);
-    }
-  }
-
-  const finalRing = rings[rings.length - 1];
-  for (let sample = 0; sample < sampleCount; sample += 1) {
-    const next = (sample + 1) % sampleCount;
-    indices.push(finalRing + sample, apexIndex, finalRing + next);
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.name = 'HexagonalDomeGeometry';
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-function createHexDomeRibGeometry(radius, baseHeight, domeHeight, radialSegments, verticalSegments) {
-  const sampleCount = radialSegments * 6;
-  const positions = [];
-  const addLine = (a, b) => positions.push(a.x, a.y, a.z, b.x, b.y, b.z);
-  const pointAt = (angle, progress) => {
-    const profile = Math.cos(progress * Math.PI / 2);
-    const boundary = hexBoundaryDistanceAtAngle(radius, angle);
-    return new THREE.Vector3(
-      Math.cos(angle) * boundary * profile,
-      baseHeight + Math.sin(progress * Math.PI / 2) * domeHeight,
-      Math.sin(angle) * boundary * profile,
-    );
-  };
-
-  // Hex perimeter and curved horizontal rings make the transparent shell read
-  // as architecture rather than as an accidental fog layer.
-  for (let row = 0; row < verticalSegments; row += 1) {
-    const progress = row / verticalSegments;
-    for (let sample = 0; sample < sampleCount; sample += 1) {
-      addLine(
-        pointAt(sample / sampleCount * Math.PI * 2, progress),
-        pointAt((sample + 1) % sampleCount / sampleCount * Math.PI * 2, progress),
-      );
-    }
-  }
-  for (let sample = 0; sample < 6; sample += 1) {
-    const angle = sample / 6 * Math.PI * 2;
-    for (let row = 0; row < verticalSegments - 1; row += 1) {
-      addLine(pointAt(angle, row / verticalSegments), pointAt(angle, (row + 1) / verticalSegments));
-    }
-    addLine(pointAt(angle, (verticalSegments - 1) / verticalSegments),
-      new THREE.Vector3(0, baseHeight + domeHeight, 0));
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.name = 'HexagonalDomeRibs';
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.computeBoundingSphere();
   return geometry;
 }
 
@@ -351,7 +293,9 @@ export class HexMap {
       metalness: 0.45,
     });
     this.forestSoilMaterial = new THREE.MeshStandardMaterial({
+      name: 'ForestSoilMaterial_HEX_S',
       color: config.forestSoilColor ?? 0x4f3829,
+      vertexColors: true,
       roughness: 0.98,
       metalness: 0,
       flatShading: true,
@@ -425,11 +369,21 @@ export class HexMap {
     this.domes = this.domeMeshes;
     this.domeRibMeshes = new Map();
     this.sectorLights = new Map();
+    this.skies = [];
+    this.cloudMeshes = [];
     this.forestLeafLitter = null;
     this.leafLitter = null;
     this.forestGround = null;
     this.forestLighting = null;
     this.forestLightTime = 0;
+    this.forestUnderGrowth = null;
+    this.underGrowth = null;
+    this.forestMist = null;
+    this.mistLayers = null;
+    // One wind clock drives the pine crowns, the grass and the ferns, so the
+    // whole biome breathes together instead of in separate rhythms.
+    this.windUniforms = createWindUniforms();
+    this.sunDirection = resolveSunDirection(config);
 
     this.debugGroup = new THREE.Group();
     this.debugGroup.name = 'HexMapDebug';
@@ -443,10 +397,43 @@ export class HexMap {
       this.sectorById.get('HEX_S'),
       config,
       (x, z) => this.getFloorHeightAt(x, z),
+      this.windUniforms,
     );
     if (this.pineGrove) this.group.add(this.pineGrove);
+    this.buildForestUnderGrowth();
     this.buildWallsAndGates();
     this.buildDebugView();
+  }
+
+  /**
+   * Grass, shrubs, rocks, fallen logs, mushrooms and the drifting mist that
+   * turn HEX_S from a flat soil plate into a lived-in forest floor.
+   */
+  buildForestUnderGrowth() {
+    const sector = this.sectorById.get('HEX_S');
+    if (!sector) return;
+
+    const keepClear = this.gates
+      .filter((gate) => gate.aSectorId === sector.id || gate.bSectorId === sector.id)
+      .map((gate) => ({
+        x: gate.center.x - sector.center.x,
+        z: gate.center.z - sector.center.z,
+        radius: this.config.gateWidth / 2 + 8,
+      }));
+
+    this.forestUnderGrowth = buildForestFloorDetail({
+      sector,
+      config: { ...this.config, forestKeepClear: keepClear },
+      floorHeightAt: (x, z) => this.getFloorHeightAt(x, z),
+      treePlacements: this.pineGrove?.userData.treePlacements ?? [],
+      windUniforms: this.windUniforms,
+    });
+    this.underGrowth = this.forestUnderGrowth;
+    this.group.add(this.forestUnderGrowth);
+
+    this.forestMist = buildForestMist(sector, this.config);
+    this.mistLayers = this.forestMist.group;
+    this.group.add(this.forestMist.group);
   }
 
   buildFloors() {
@@ -567,92 +554,41 @@ export class HexMap {
     return group;
   }
 
+  /**
+   * Every sector is roofed by an opaque cupola painted with its own sky: a
+   * vertical gradient, a sun disc with halo and a drifting cloud deck. The
+   * shells are never colliders and are hidden in the top-down overview so the
+   * geometry underneath stays readable.
+   */
   buildDomeRoofs() {
     this.domeGroup = new THREE.Group();
     this.domeGroup.name = 'HexDomeRoofs';
     this.domeGroup.userData.cellCount = this.sectors.length;
     this.domeGroup.userData.domeCount = this.sectors.length;
-    this.domeGroup.userData.roofType = 'transparent-hexagonal-cupola';
+    this.domeGroup.userData.roofType = 'painted-hexagonal-sky-cupola';
     this.domeRoofs = this.domeGroup;
     this.group.add(this.domeGroup);
 
-    const domeMaterial = new THREE.MeshStandardMaterial({
-      color: this.config.domeColor ?? 0x8cc9c0,
-      emissive: 0x214b4b,
-      emissiveIntensity: 0.26,
-      roughness: 0.32,
-      metalness: 0.08,
-      transparent: true,
-      opacity: this.config.domeOpacity ?? 0.14,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const ribMaterial = new THREE.LineBasicMaterial({
-      color: this.config.domeRibColor ?? 0xb6f4df,
-      transparent: true,
-      opacity: 0.48,
-      depthWrite: false,
-    });
-    this.domeMaterial = domeMaterial;
-    this.domeRibMaterial = ribMaterial;
-
-    const baseHeight = this.config.domeBaseHeight ?? this.config.wallHeight;
-    const domeHeight = this.config.domeHeight ?? 118;
-    const radialSegments = this.config.domeRadialSegments ?? 12;
-    const verticalSegments = this.config.domeVerticalSegments ?? 8;
     for (const sector of this.sectors) {
-      const domeCell = new THREE.Group();
-      domeCell.name = `DomeCell_${sector.id}`;
-      domeCell.userData.sectorId = sector.id;
-      domeCell.userData.roofType = 'cupola';
-      this.domeGroup.add(domeCell);
-
-      const dome = new THREE.Mesh(
-        createHexDomeGeometry(
-          this.config.hexRadius,
-          0,
-          domeHeight,
-          radialSegments,
-          verticalSegments,
-        ),
-        domeMaterial,
-      );
-      dome.name = `Dome_${sector.id}`;
-      dome.position.set(
-        sector.center.x,
-        this.config.floorHeight + baseHeight,
-        sector.center.z,
-      );
-      dome.renderOrder = 20;
-      dome.userData.sectorId = sector.id;
-      dome.userData.roofType = 'cupola';
-      dome.userData.baseHeight = baseHeight;
-      dome.userData.domeHeight = domeHeight;
-      dome.userData.collidable = false;
-      domeCell.add(dome);
-      this.domeMeshes.set(sector.id, dome);
-
-      const ribs = new THREE.LineSegments(
-        createHexDomeRibGeometry(
-          this.config.hexRadius,
-          0.12,
-          domeHeight,
-          radialSegments,
-          verticalSegments,
-        ),
-        ribMaterial,
-      );
-      ribs.name = `DomeRibs_${sector.id}`;
-      ribs.position.set(
-        sector.center.x,
-        this.config.floorHeight + baseHeight,
-        sector.center.z,
-      );
-      ribs.renderOrder = 21;
-      ribs.userData.sectorId = sector.id;
-      domeCell.add(ribs);
-      this.domeRibMeshes.set(sector.id, ribs);
+      const sky = new SkyDome({
+        sector,
+        config: this.config,
+        sunDirection: this.sunDirection,
+      });
+      this.domeGroup.add(sky.group);
+      this.skies.push(sky);
+      this.domeMeshes.set(sector.id, sky.shell);
+      this.domeRibMeshes.set(sector.id, sky.ribs);
+      this.cloudMeshes.push(...sky.cloudMeshes);
+      if (sector.id === 'HEX_S') this.forestSky = sky;
     }
+
+    this.domeMaterial = this.skies[0]?.shellMaterial ?? null;
+    this.domeRibMaterial = this.skies[0]?.ribMaterial ?? null;
+    this.cloudTotal = this.cloudMeshes.reduce(
+      (total, mesh) => total + mesh.count,
+      0,
+    );
   }
 
   buildSectorLighting() {
@@ -665,7 +601,9 @@ export class HexMap {
     group.userData.biome = 'forest-canopy-light';
     this.group.add(group);
 
-    const hemisphere = new THREE.HemisphereLight(0xc3f5d4, 0x2c2017, 0.48);
+    // A brighter canopy wash keeps the dense grove from going muddy: the
+    // green-tinted sky colour reads as light filtered through the needles.
+    const hemisphere = new THREE.HemisphereLight(0xd6f7e2, 0x3a2c1e, 0.78);
     hemisphere.name = 'HEX_S_ForestHemisphere';
     hemisphere.position.set(sector.center.x, this.config.floorHeight + 65, sector.center.z);
     hemisphere.userData.sectorId = sector.id;
@@ -1235,6 +1173,12 @@ export class HexMap {
     }
     if (matricesDirty) this.flushDoorPartMatrices();
 
+    // Sky first: the painted cupolas drift their clouds, and the shared wind
+    // clock advances so the pines and the undergrowth sway on the same gust.
+    for (const sky of this.skies) sky.update(dt);
+    this.forestMist?.update(dt);
+    this.windUniforms.time.value += dt * (this.config.windStrength ?? 1);
+
     // The forest lights breathe very subtly, like sunlight moving through a
     // canopy. This is deliberately restrained so the changed HEX_S lighting
     // feels atmospheric rather than like a flashing effect.
@@ -1357,6 +1301,10 @@ export class HexMap {
 
   setDebugVisible(visible) {
     this.debugGroup.visible = visible;
+    // The sky cupolas would hide the whole map from the overview camera, and
+    // the mist would veil it, so both step aside while the map is annotated.
+    if (this.domeGroup) this.domeGroup.visible = !visible;
+    if (this.mistLayers) this.mistLayers.visible = !visible;
   }
 
   updateDebugPlayer(position) {

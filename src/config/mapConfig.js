@@ -107,28 +107,81 @@ export const MAP_CONFIG = Object.freeze({
   floorColor: 0xd99b26,
   // Forest-biome materials for HEX_S. The soil remains visible between the
   // thousands of low-poly leaves scattered over the uneven ground.
-  forestSoilColor: 0x4f3829,
-  forestSoilDarkColor: 0x35251d,
+  forestSoilColor: 0x7c5a3d,
+  forestSoilDarkColor: 0x45321f,
   forestLeafColors: Object.freeze([
-    0x6f4528, 0x8b5a2b, 0xa87338, 0x4d652d, 0x9b7a3e,
+    0x8a5730, 0xa06b34, 0xc08a45, 0x5d7a37, 0xb08d4a,
   ]),
   forestTerrainAmplitude: 8.5,
   forestTerrainEdgeBlend: 34,
   forestTerrainCenterBlend: 20,
-  forestLeafCount: 1350,
+  forestLeafCount: 2600,
   forestTreeCount: 52,
   wallColor: 0x545d61,
   gateFrameColor: 0x22272a,
-  backgroundColor: 0x425c60,
-  // Each cell receives a transparent, curved shell whose spring line sits on
-  // the top of its 45-unit wall. The domes are visual only, not colliders.
+  backgroundColor: 0x8fb6c6,
+  // Every cell is capped by a curved hexagonal cupola whose spring line sits on
+  // the top of its 45-unit wall. The shell is opaque and painted with a real
+  // sky; the cupolas are visual only, never colliders.
   domeBaseHeight: 45,
-  domeHeight: 118,
-  domeRadialSegments: 12,
-  domeVerticalSegments: 8,
+  domeHeight: 150,
+  domeRadialSegments: 16,
+  domeVerticalSegments: 12,
   domeColor: 0x8cc9c0,
-  domeOpacity: 0.14,
-  domeRibColor: 0xb6f4df,
+  domeRibColor: 0xe6f6ee,
+  domeRibOpacity: 0.32,
+
+  // --- Sun and sky -------------------------------------------------------
+  // One sun lights the whole world, so the painted sky, the cloud deck and the
+  // directional key light always agree on where the light comes from.
+  sunDirection: Object.freeze({ x: -0.42, y: 0.56, z: -0.72 }),
+  sunColor: 0xfff2d2,
+  sunIntensity: 1.18,
+  sunAmbientColor: 0xd7eee4,
+  groundBounceColor: 0x2c3a33,
+  sunGlowStrength: 0.95,
+  skyZenithColor: 0x2a6fc0,
+  skyHorizonColor: 0xa9cfe4,
+  skyHazeColor: 0xe6eff3,
+  // How far each cupola's sky drifts towards its own sector accent.
+  skyTintStrength: 0.24,
+  cloudLightColor: 0xfffaf1,
+  cloudShadowColor: 0xa9bfd0,
+  cloudCoverage: 0.28,
+  cloudSoftness: 0.08,
+  cloudStrength: 0.85,
+  cloudScale: 1.25,
+  cloudDriftSpeed: 0.012,
+  cloudDeckDriftSpeed: 0.0075,
+  cloudCount: 10,
+  // The deck rides low and wide: from the floor of a sector the sky is a band
+  // between the wall tops and about forty degrees of elevation, and that band
+  // is where the clouds have to be.
+  cloudAltitudeMin: 58,
+  cloudAltitudeMax: 104,
+  cloudRadiusFactor: 0.74,
+  cloudMinRadiusFactor: 0.28,
+
+  // HEX_S is the showcase biome: a denser cloud deck, a stronger halo and a
+  // mist layer drifting between the trunks.
+  forestCloudCount: 20,
+  forestCloudCoverage: 0.36,
+  forestCloudSoftness: 0.068,
+  forestCloudStrength: 0.95,
+  forestSunGlowStrength: 1.3,
+  forestMistColor: 0xdcecf0,
+  forestMistOpacity: 0.26,
+  forestMistLayers: 2,
+  forestMistHeight: 5.5,
+  forestMistSpacing: 4.5,
+  forestMistDriftSpeed: 0.014,
+  // Undergrowth scattered across the seeded soil of the forest floor.
+  forestGrassCount: 1900,
+  forestShrubCount: 96,
+  forestRockCount: 62,
+  forestLogCount: 16,
+  forestMushroomCount: 70,
+  windStrength: 1,
   forestLightColors: Object.freeze([0x9bf2bf, 0xffc477, 0x70d8c9]),
   forestLightIntensity: 1.9,
   sectorColors: SECTOR_COLORS,
