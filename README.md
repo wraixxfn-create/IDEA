@@ -30,6 +30,8 @@ The map contains **eight** radius-220 sectors. The original center-plus-six clus
 
 Each portal is a detailed, sector-lit assembly with a reinforced metal exoskeleton, layered jamb armour, a hex crest, and twin sliding leaves. The leaves open smoothly as the explorer approaches and close after a short delay; their collision moves with the animation. The opening remains tall enough for walking and low flight, while the solid lintel still blocks higher flight.
 
+`HEX_S` is the forest biome: its floor is a seeded soil-and-leaf surface with a gentle interior relief that fades to the exact shared-edge height, so adjacent hexagons remain seamless. Its denser pine grove is planted to the terrain, with fuller needle sprays and a layer of individual leaf litter. Every sector is enclosed by its own transparent curved hexagonal cupola with structural ribs; the forest sector also has a dedicated green, amber, and teal canopy-light rig.
+
 The pause menu offers resume and map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
 
 Run the topology and controller checks with:

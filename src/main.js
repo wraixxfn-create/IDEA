@@ -28,8 +28,10 @@ renderer.toneMapping = THREE.NoToneMapping;
 renderer.domElement.setAttribute('aria-label', 'Three-dimensional hexagonal exploration world');
 viewport.prepend(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xf1f3f1, 0x626b6e, 1.75));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+// A cooler, lower global wash leaves room for the warmer biomes and the new
+// green/amber canopy lights inside HEX_S to read as a distinct environment.
+scene.add(new THREE.HemisphereLight(0xd7eee4, 0x26352e, 1.22));
+const keyLight = new THREE.DirectionalLight(0xffe6bd, 0.92);
 keyLight.position.set(-260, 420, -180);
 scene.add(keyLight);
 
