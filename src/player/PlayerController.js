@@ -23,6 +23,8 @@ export class PlayerController {
     this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
     this.onLockChange = () => {};
     this.onFlightChange = () => {};
+    this.lastSafeX = this.position.x;
+    this.lastSafeZ = this.position.z;
 
     this.avatarGeometry = new THREE.SphereGeometry(1, 24, 16);
     this.avatarMaterial = new THREE.MeshStandardMaterial({
@@ -39,7 +41,7 @@ export class PlayerController {
       (config.height ?? 1.8) / 2,
       config.avatarDepth ?? 0.42,
     );
-    this.avatar.castShadow = false;
+    this.avatar.castShadow = true;
     this.avatar.receiveShadow = false;
     world.group.add(this.avatar);
 
@@ -232,8 +234,19 @@ export class PlayerController {
       }
 
       const floorHeight = this.world.getFloorHeightAt(this.position.x, this.position.z);
-      if (floorHeight !== null && this.position.y <= floorHeight) {
-        this.position.y = floorHeight;
+      if (floorHeight !== null) {
+        this.lastSafeX = this.position.x;
+        this.lastSafeZ = this.position.z;
+        if (this.position.y <= floorHeight) {
+          this.position.y = floorHeight;
+          this.velocityY = 0;
+          if (this.isFlying) this.setFlying(false);
+        }
+      }
+
+      const fallLimit = this.config.fallLimit ?? -120;
+      if (this.position.y < fallLimit) {
+        this.position.set(this.lastSafeX, this.world.config.floorHeight, this.lastSafeZ);
         this.velocityY = 0;
         if (this.isFlying) this.setFlying(false);
       }
@@ -254,15 +267,34 @@ export class PlayerController {
 
   syncCamera() {
     const targetHeight = this.config.cameraTargetHeight ?? 1.05;
-    const horizontalDistance = this.cameraDistance * Math.cos(this.pitch);
-    const verticalDistance = this.cameraDistance * Math.sin(this.pitch);
     const targetX = this.position.x;
     const targetY = this.position.y + targetHeight;
     const targetZ = this.position.z;
+    let distance = this.cameraDistance;
 
+    if (typeof this.world.resolveHorizontalPosition === 'function') {
+      for (let pass = 0; pass < 6; pass += 1) {
+        const horizontalDistance = distance * Math.cos(this.pitch);
+        const cameraX = targetX + Math.sin(this.yaw) * horizontalDistance;
+        const cameraY = targetY + distance * Math.sin(this.pitch);
+        const cameraZ = targetZ + Math.cos(this.yaw) * horizontalDistance;
+        const resolved = this.world.resolveHorizontalPosition(
+          cameraX,
+          cameraZ,
+          0.35,
+          cameraY - 0.4,
+          0.8,
+        );
+        const blocked = Math.hypot(resolved.x - cameraX, resolved.z - cameraZ) > 0.02;
+        if (!blocked) break;
+        distance *= 0.72;
+      }
+    }
+
+    const horizontalDistance = distance * Math.cos(this.pitch);
     this.camera.position.set(
       targetX + Math.sin(this.yaw) * horizontalDistance,
-      targetY + verticalDistance,
+      targetY + distance * Math.sin(this.pitch),
       targetZ + Math.cos(this.yaw) * horizontalDistance,
     );
     this.camera.lookAt(targetX, targetY, targetZ);

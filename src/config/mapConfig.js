@@ -96,7 +96,17 @@ export const MAP_CONFIG = Object.freeze({
   floorColor: 0xd99b26,
   wallColor: 0x545d61,
   gateFrameColor: 0x22272a,
-  backgroundColor: 0x7b888c,
+  backgroundColor: 0x7e8a8d,
+  fogColor: 0x7e8a8d,
+  fogNear: 380,
+  fogFar: 1950,
+  skyTopColor: 0xb9c6c8,
+  skyRadius: 2400,
+  voidColor: 0x2c3335,
+  voidRadius: 1800,
+  voidHeight: -48,
+  sunIntensity: 1.35,
+  shadowExtent: 780,
   sectorColors: SECTOR_COLORS,
 });
 
@@ -123,4 +133,5 @@ export const PLAYER_CONFIG = Object.freeze({
   maxCameraDistance: 17,
   cameraTargetHeight: 1.05,
   zoomStep: 0.9,
+  fallLimit: -120,
 });

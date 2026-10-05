@@ -177,7 +177,7 @@ export class HexMap {
       const floor = new THREE.Mesh(this.floorGeometry, sectorFloorMaterial);
       floor.name = `Floor_${sector.id}`;
       floor.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
-      floor.receiveShadow = false;
+      floor.receiveShadow = true;
       floor.userData.sectorId = sector.id;
       this.group.add(floor);
       this.sectorMeshes.set(sector.id, floor);
@@ -186,6 +186,7 @@ export class HexMap {
       const ring = new THREE.Mesh(this.floorRingGeometry, this.floorRingMaterial);
       ring.name = `FloorRing_${sector.id}`;
       ring.position.set(sector.center.x, this.config.floorHeight + 0.02, sector.center.z);
+      ring.receiveShadow = true;
       this.group.add(ring);
 
 
@@ -330,6 +331,8 @@ export class HexMap {
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.castShadow = name !== 'PortalLightStrips';
+    mesh.receiveShadow = name !== 'PortalLightStrips';
     mesh.computeBoundingBox();
     mesh.computeBoundingSphere();
     this.group.add(mesh);

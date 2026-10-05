@@ -14,7 +14,7 @@
           <div class="brand-lockup">
             <div class="brand-mark" aria-hidden="true"><span></span></div>
             <div class="brand-copy">
-              <p class="eyebrow">WORLD FOUNDATION / 01</p>
+              <p class="eyebrow">WORLD FOUNDATION / 02</p>
               <h1>HEXFIELD</h1>
             </div>
           </div>
@@ -23,6 +23,8 @@
             <div class="readout-item"><span class="readout-value">07</span><span class="readout-label">sectors</span></div>
             <span class="readout-divider" aria-hidden="true"></span>
             <div class="readout-item"><span class="readout-value">12</span><span class="readout-label">open gates</span></div>
+            <span class="readout-divider" aria-hidden="true"></span>
+            <div class="readout-item"><span id="explored-count" class="readout-value">00</span><span class="readout-label">explored</span></div>
           </div>
         </div>
 
@@ -61,6 +63,15 @@
           FLIGHT MODE
           <span class="debug-state-divider">/</span>
           DOUBLE SPACE TO LAND
+        </div>
+        <div id="altitude-readout" class="altitude-readout" aria-live="polite" aria-hidden="true">
+          <span id="altitude-value">0</span>
+          <span>ALT</span>
+        </div>
+
+        <div class="hex-compass" aria-label="Sector compass">
+          <canvas id="hex-compass-canvas" width="196" height="196"></canvas>
+          <p class="compass-caption">SECTOR MAP</p>
         </div>
 
         <div class="hud hud-bottom">

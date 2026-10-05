@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import './style.css';
 import { MAP_CONFIG, PLAYER_CONFIG, getSectorInfo } from './config/mapConfig.js';
 import { HexMap } from './world/HexMap.js';
+import { createAtmosphere } from './world/Atmosphere.js';
+import { HexCompass } from './ui/HexCompass.js';
 import { PlayerController } from './player/PlayerController.js';
 
 const viewport = document.querySelector('#viewport');
@@ -12,6 +14,10 @@ const experiencePrompt = document.querySelector('#experience-prompt');
 const overviewButton = document.querySelector('#menu-overview');
 const debugState = document.querySelector('#debug-state');
 const flightState = document.querySelector('#flight-state');
+const exploredCount = document.querySelector('#explored-count');
+const altitudeReadout = document.querySelector('#altitude-readout');
+const altitudeValue = document.querySelector('#altitude-value');
+const compassCanvas = document.querySelector('#hex-compass-canvas');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(MAP_CONFIG.backgroundColor);
@@ -28,12 +34,11 @@ renderer.toneMapping = THREE.NoToneMapping;
 renderer.domElement.setAttribute('aria-label', 'Three-dimensional hexagonal exploration world');
 viewport.prepend(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xf1f3f1, 0x626b6e, 1.75));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
-keyLight.position.set(-260, 420, -180);
-scene.add(keyLight);
+scene.add(new THREE.HemisphereLight(0xf1f3f1, 0x626b6e, 1.55));
+createAtmosphere(scene, renderer, MAP_CONFIG);
 
 const world = new HexMap(scene, MAP_CONFIG);
+const compass = compassCanvas ? new HexCompass(compassCanvas, world) : null;
 const camera = new THREE.PerspectiveCamera(
   76,
   window.innerWidth / window.innerHeight,
@@ -69,6 +74,11 @@ function updatePrompt() {
   const showFlightState = player.isFlying && player.isLocked && !debugMode;
   flightState.classList.toggle('is-visible', showFlightState);
   flightState.setAttribute('aria-hidden', String(!showFlightState));
+  if (altitudeReadout) {
+    const showAltitude = showFlightState;
+    altitudeReadout.classList.toggle('is-visible', showAltitude);
+    altitudeReadout.setAttribute('aria-hidden', String(!showAltitude));
+  }
 
   if (debugMode) {
     enterLabel.textContent = 'Debug overview active';
@@ -147,10 +157,20 @@ updatePrompt();
 const footerCoordinate = document.querySelector('.footer-coordinate');
 let currentSectorId = null;
 
+function updateExploredReadout() {
+  if (!exploredCount || !compass) return;
+  exploredCount.textContent = String(compass.exploredCount).padStart(2, '0');
+}
+
 function updateSectorDisplay() {
-  if (!footerCoordinate) return;
   const sector = world.getSectorAt(player.position.x, player.position.z);
   const sectorId = sector?.id ?? null;
+  if (compass) {
+    if (sectorId) compass.markVisited(sectorId);
+    else compass.clearCurrent();
+    updateExploredReadout();
+  }
+  if (!footerCoordinate) return;
   if (sectorId !== currentSectorId) {
     currentSectorId = sectorId;
     if (sectorId) {
@@ -172,6 +192,10 @@ function animate() {
   if (!debugMode) {
     player.update(delta);
     updateSectorDisplay();
+  }
+  if (compass) compass.draw(player.position.x, player.position.z, player.facingYaw);
+  if (altitudeValue && player.isFlying) {
+    altitudeValue.textContent = String(Math.max(0, Math.round(player.position.y)));
   }
   world.updateDebugPlayer(player.position);
   renderer.render(scene, debugMode ? overviewCamera : camera);

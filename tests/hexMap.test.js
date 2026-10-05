@@ -165,6 +165,16 @@ test('floors have no dark central mini hexagons and walls are three times taller
   assert.equal(position.y + scale.y / 2, MAP_CONFIG.floorHeight + MAP_CONFIG.wallHeight);
 });
 
+test('floors and structural walls participate in shadow mapping', () => {
+  const map = makeMap();
+  for (const sector of map.sectors) {
+    assert.equal(map.sectorMeshes.get(sector.id).receiveShadow, true);
+  }
+  assert.equal(map.wallInstancedMesh.castShadow, true);
+  assert.equal(map.wallInstancedMesh.receiveShadow, true);
+  assert.equal(map.portalLights.castShadow, false);
+});
+
 test('door headers block flight while the full visible opening stays passable', () => {
   const map = makeMap();
   for (const gate of map.gates) {
