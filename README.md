@@ -1,6 +1,6 @@
 # HEXFIELD — World Foundation
 
-A browser-based Three.js exploration world made from seven reusable, flat-top hexagonal sectors. The initial scene contains sector floors, perimeter/partition walls, minimal rectangular gates, and a minimal third-person explorer represented by a simple oval.
+A browser-based Three.js exploration world made from seven reusable, flat-top hexagonal sectors. The initial scene contains sector floors, perimeter/partition walls, minimal rectangular gates, a third-person explorer, atmospheric light and fog, and a live hex compass. Rooms stay empty on purpose.
 
 ## Run
 
@@ -27,7 +27,7 @@ For a production build, run `npm run build`. The generated site is static and do
 
 The seven initial sectors form one radius-1 axial cluster. Each sector has radius **220 world units**, identical flat-top geometry, and the same elevation. Walls are **90 world units** high. Every shared full side becomes one open rectangular passage with a slim dark frame and straight sector-colored light strips on both faces. The solid header above each opening also blocks flight; unshared sides receive perimeter walls. Floors retain their sector color and border, with no central dark medallion.
 
-The pause menu offers resume and map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
+The pause menu offers resume and map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview. A live hex compass tracks visited sectors; flying over the outer walls reveals the void beneath the cluster, and falling too far returns you to the last solid floor.
 
 Run the topology checks with:
 

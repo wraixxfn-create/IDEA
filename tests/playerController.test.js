@@ -122,6 +122,35 @@ test('Esc releases capture, opens the menu callback and clears held movement', (
   player.dispose();
 });
 
+test('falling below the world returns the explorer to last safe ground', () => {
+  const player = makePlayer();
+  player.position.set(12, 0, -8);
+  player.update(1 / 60);
+  player.world.getFloorHeightAt = () => null;
+  player.position.y = -200;
+  player.update(1 / 60);
+  assert.equal(player.position.y, 0);
+  assert.equal(player.position.x, 12);
+  assert.equal(player.position.z, -8);
+  assert.equal(player.isFlying, false);
+  player.dispose();
+});
+
+test('follow camera pulls in when the default orbit sits inside a wall', () => {
+  const player = makePlayer();
+  const unconstrainedZ = PLAYER_CONFIG.cameraDistance * Math.cos(PLAYER_CONFIG.initialCameraPitch);
+  player.world.resolveHorizontalPosition = (x, z) => {
+    if (Math.abs(z) > 4) return { x, z: 4 };
+    return { x, z };
+  };
+  player.syncCamera();
+  assert.ok(
+    player.camera.position.z < unconstrainedZ - 1,
+    `camera z ${player.camera.position.z} should shrink from ${unconstrainedZ}`,
+  );
+  player.dispose();
+});
+
 test('browser-driven pointer unlock also notifies the pause UI', () => {
   const player = makePlayer();
   let menuOpened = false;
