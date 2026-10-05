@@ -33,16 +33,21 @@
           <div class="control-row"><kbd class="wide-key">SCROLL</kbd><span>zoom</span></div>
           <div class="control-row"><kbd class="wide-key">SPACE × 2</kbd><span>toggle flight</span></div>
           <div class="control-row"><kbd class="wide-key flight-keys">SPACE / CTRL</kbd><span>rise / descend</span></div>
+          <div class="control-row"><kbd class="wide-key">ESC</kbd><span>pause menu</span></div>
           <div class="control-row debug-control"><kbd class="wide-key">F3</kbd><span>debug overview</span></div>
         </div>
 
         <div id="experience-prompt" class="experience-prompt" role="status" aria-live="polite">
+          <p id="pause-eyebrow" class="pause-only">HEXFIELD / MENÙ</p>
+          <h2 id="pause-title" class="pause-only">Esplorazione in pausa</h2>
+          <p class="pause-only pause-description">Riprendi da dove eri rimasto.</p>
           <button id="enter-world" class="enter-button" type="button">
             <span class="enter-icon" aria-hidden="true">↗</span>
             <span id="enter-label">Click to explore</span>
             <span class="enter-arrow" aria-hidden="true">→</span>
           </button>
-          <p id="prompt-note">Mouse orbits · Scroll zooms · Esc releases pointer</p>
+          <button id="menu-overview" class="menu-secondary pause-only" type="button">Panoramica della mappa <span aria-hidden="true">↗</span></button>
+          <p id="prompt-note">Mouse orbits · Scroll zooms · Esc opens menu</p>
         </div>
 
         <div id="debug-state" class="debug-state" aria-live="polite">

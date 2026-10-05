@@ -73,8 +73,22 @@ export class PlayerController {
     }
   }
 
+  releasePointerLock() {
+    this.isLocked = false;
+    this.keys.clear();
+    this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+    this.onLockChange(false);
+    if (document.pointerLockElement === this.domElement) document.exitPointerLock();
+  }
+
   handleKeyDown(event) {
+    if (event.code === 'Escape') {
+      event.preventDefault();
+      this.releasePointerLock();
+      return;
+    }
     if (!MOVEMENT_KEYS.has(event.code)) return;
+    if (!this.isLocked) return;
     event.preventDefault();
 
     if (event.code === 'Space') {
@@ -103,9 +117,9 @@ export class PlayerController {
 
   handleMouseMove(event) {
     if (!this.isLocked) return;
-    this.yaw -= event.movementX * this.config.mouseSensitivity;
+    this.yaw += event.movementX * this.config.mouseSensitivity;
     this.pitch = THREE.MathUtils.clamp(
-      this.pitch - event.movementY * this.config.mouseSensitivity,
+      this.pitch + event.movementY * this.config.mouseSensitivity,
       this.config.minPitch ?? 0.08,
       this.config.maxPitch ?? 1.12,
     );

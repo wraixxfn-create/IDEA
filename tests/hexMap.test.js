@@ -44,11 +44,11 @@ test('one reusable map generates seven floors, twelve gates and a closed outside
   assert.equal(map.sectorMeshes.size, 7);
   assert.equal(map.gates.length, 12);
   assert.equal(map.boundaryEdges.length, 18);
-  assert.equal(map.wallInstancedMesh.count, 42);
+  assert.equal(map.wallInstancedMesh.count, 54);
   assert.equal(map.frameInstancedMesh.count, 36);
-  assert.equal(map.portalBezels.count, 24, 'each gate has a beveled surround on both faces');
-  assert.equal(map.portalLightRings.count, 24, 'each gate has a sector-colored light ring on both faces');
-  assert.equal(map.portalCrests.count, 24, 'each gate has a hex crest on both faces');
+  assert.equal(map.portalLights.count, 72, 'three slim light strips on each face of twelve gates');
+  assert.equal(map.group.getObjectByName('PortalHexCrests'), undefined);
+  assert.equal(map.group.getObjectByName('PortalBevelledBezels'), undefined);
   assert.equal(map.debugGroup.visible, false);
   for (const sector of map.sectors) {
     assert.equal(map.getFloorHeightAt(sector.center.x, sector.center.z), MAP_CONFIG.floorHeight);
@@ -149,3 +149,31 @@ test('every sector has a distinct floor color and gates are narrower', () => {
   assert.equal(colors.size, map.sectors.length);
 });
 
+
+test('floors have no dark central mini hexagons and walls are three times taller', () => {
+  const map = makeMap();
+  assert.equal(MAP_CONFIG.wallHeight, 90);
+  for (const sector of map.sectors) {
+    assert.equal(map.group.getObjectByName(`FloorCenter_${sector.id}`), undefined);
+  }
+  const matrix = new THREE.Matrix4();
+  map.wallInstancedMesh.getMatrixAt(0, matrix);
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  matrix.decompose(position, new THREE.Quaternion(), scale);
+  assert.equal(scale.y, MAP_CONFIG.wallHeight);
+  assert.equal(position.y + scale.y / 2, MAP_CONFIG.floorHeight + MAP_CONFIG.wallHeight);
+});
+
+test('door headers block flight while the full visible opening stays passable', () => {
+  const map = makeMap();
+  for (const gate of map.gates) {
+    const point = pointOnEdge(gate, 0);
+    const below = map.resolveHorizontalPosition(point.x, point.z, PLAYER_CONFIG.radius,
+      MAP_CONFIG.gateOpeningHeight - PLAYER_CONFIG.height - 0.1, PLAYER_CONFIG.height);
+    assert.ok(Math.hypot(below.x - point.x, below.z - point.z) < 1e-6, gate.id);
+    const above = map.resolveHorizontalPosition(point.x, point.z, PLAYER_CONFIG.radius,
+      MAP_CONFIG.gateOpeningHeight + 0.1, PLAYER_CONFIG.height);
+    assert.ok(Math.hypot(above.x - point.x, above.z - point.z) > 1, gate.id);
+  }
+});
