@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildHexMapData, getHexVertices, isPointInsideHex } from './hexGrid.js';
 import { getSectorColor, getSectorInfo } from '../config/mapConfig.js';
+import { buildPineGrove } from './PineGrove.js';
 
 function createFloorGeometry(radius) {
   const vertices = getHexVertices(0, 0, radius);
@@ -192,6 +193,8 @@ export class HexMap {
     this.group.add(this.debugGroup);
 
     this.buildFloors();
+    this.pineGrove = buildPineGrove(this.sectorById.get('HEX_S'), config);
+    if (this.pineGrove) this.group.add(this.pineGrove);
     this.buildWallsAndGates();
     this.buildDebugView();
   }

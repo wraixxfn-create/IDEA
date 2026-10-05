@@ -69,7 +69,6 @@ export class PlayerController {
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
     this.handleMouseMove = this.handleMouseMove.bind(this);
-    this.handleWheel = this.handleWheel.bind(this);
     this.handlePointerLockChange = this.handlePointerLockChange.bind(this);
     this.handlePointerLockError = this.handlePointerLockError.bind(this);
     this.handleBlur = this.handleBlur.bind(this);
@@ -80,7 +79,6 @@ export class PlayerController {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
     window.addEventListener('blur', this.handleBlur);
-    window.addEventListener('wheel', this.handleWheel, { passive: false });
     document.addEventListener('mousemove', this.handleMouseMove);
     document.addEventListener('pointerlockchange', this.handlePointerLockChange);
     document.addEventListener('pointerlockerror', this.handlePointerLockError);
@@ -186,25 +184,30 @@ export class PlayerController {
     return true;
   }
 
+  getMinimumPitch() {
+    const configuredMinimum = this.config.minPitch ?? (-Math.PI / 2 + 0.025);
+    const floorHeight = this.world.getFloorHeightAt?.(this.position.x, this.position.z)
+      ?? this.world.config.floorHeight
+      ?? 0;
+    const targetY = this.position.y + (this.config.cameraTargetHeight ?? 1.05);
+    const minimumCameraY = floorHeight + (this.config.cameraFloorClearance ?? 0.24);
+    const distance = Math.max(0.001, this.cameraDistance);
+    const floorPitch = Math.asin(THREE.MathUtils.clamp(
+      (minimumCameraY - targetY) / distance,
+      -1,
+      1,
+    ));
+    return Math.max(configuredMinimum, floorPitch);
+  }
+
   handleMouseMove(event) {
     if (!this.isLocked) return;
     // Invert the horizontal orbit to match the usual mouse-look direction.
     this.yaw -= event.movementX * this.config.mouseSensitivity;
     this.pitch = THREE.MathUtils.clamp(
       this.pitch + event.movementY * this.config.mouseSensitivity,
-      this.config.minPitch ?? (-Math.PI / 2 + 0.025),
+      this.getMinimumPitch(),
       this.config.maxPitch ?? (Math.PI / 2 - 0.025),
-    );
-  }
-
-  handleWheel(event) {
-    if (!this.isLocked) return;
-    event.preventDefault();
-    const zoomStep = this.config.zoomStep ?? 0.9;
-    this.cameraDistance = THREE.MathUtils.clamp(
-      this.cameraDistance + Math.sign(event.deltaY) * zoomStep,
-      this.config.minCameraDistance ?? 5,
-      this.config.maxCameraDistance ?? 17,
     );
   }
 
@@ -361,6 +364,11 @@ export class PlayerController {
 
   syncCamera() {
     const targetHeight = this.config.cameraTargetHeight ?? 1.05;
+    this.pitch = THREE.MathUtils.clamp(
+      this.pitch,
+      this.getMinimumPitch(),
+      this.config.maxPitch ?? (Math.PI / 2 - 0.025),
+    );
     const horizontalDistance = this.cameraDistance * Math.cos(this.pitch);
     const verticalDistance = this.cameraDistance * Math.sin(this.pitch);
     const targetX = this.position.x;
@@ -379,7 +387,6 @@ export class PlayerController {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('blur', this.handleBlur);
-    window.removeEventListener('wheel', this.handleWheel);
     document.removeEventListener('mousemove', this.handleMouseMove);
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
     document.removeEventListener('pointerlockerror', this.handlePointerLockError);

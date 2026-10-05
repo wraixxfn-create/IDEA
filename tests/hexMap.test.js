@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { MAP_CONFIG, PLAYER_CONFIG } from '../src/config/mapConfig.js';
 import { HexMap } from '../src/world/HexMap.js';
+import { isPointInsideHex } from '../src/world/hexGrid.js';
 
 // HexMap only uses a canvas for the optional debug labels. A tiny canvas stub
 // keeps this structural/collision test runnable in plain Node without a DOM.
@@ -57,6 +58,44 @@ test('map builds eight sectors, a closed perimeter and detailed animated portals
   assert.equal(map.debugGroup.visible, false);
   for (const sector of map.sectors) {
     assert.equal(map.getFloorHeightAt(sector.center.x, sector.center.z), MAP_CONFIG.floorHeight);
+  }
+});
+
+test('detailed pine trees are present only in HEX_S and stay inside its boundary', () => {
+  const map = makeMap();
+  const grove = map.pineGrove;
+  const sector = map.getSector('HEX_S');
+  assert.ok(grove, 'HEX_S receives its pine grove');
+  assert.equal(grove.name, 'PineGrove_HEX_S');
+  assert.equal(grove.userData.sectorId, 'HEX_S');
+  assert.equal(grove.userData.foliageType, 'mature-pine');
+  assert.equal(grove.userData.treeCount, 18);
+  assert.equal(grove.children.length, 2, 'wood and needle meshes keep the grove to two draw calls');
+  assert.ok(grove.getObjectByName('PineGrove_Wood_HEX_S').geometry.getAttribute('position').count > 10000);
+  assert.ok(grove.getObjectByName('PineGrove_Needles_HEX_S').geometry.getAttribute('position').count > 100000);
+  assert.equal(map.group.children.filter((child) => child.userData.foliageType === 'mature-pine').length, 1);
+  assert.equal(map.group.getObjectByName('PineGrove_HEX_N'), undefined);
+  assert.equal(map.group.getObjectByName('PineGrove_HEX_CENTER'), undefined);
+
+  for (const tree of grove.userData.treePlacements) {
+    const worldX = sector.center.x + tree.x;
+    const worldZ = sector.center.z + tree.z;
+    assert.equal(map.getSectorAt(worldX, worldZ)?.id, 'HEX_S');
+  }
+
+  // Check the complete generated canopy, roots and branches, not just trunk
+  // centers, so no part of a pine leaks into a neighboring sector.
+  for (const mesh of grove.children) {
+    const positions = mesh.geometry.getAttribute('position');
+    for (let index = 0; index < positions.count; index += 1) {
+      assert.ok(isPointInsideHex(
+        sector.center.x + positions.getX(index),
+        sector.center.z + positions.getZ(index),
+        sector.center.x,
+        sector.center.z,
+        MAP_CONFIG.hexRadius,
+      ), `${mesh.name} vertex ${index} crossed the HEX_S boundary`);
+    }
   }
 });
 

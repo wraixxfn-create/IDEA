@@ -127,13 +127,12 @@ export const PLAYER_CONFIG = Object.freeze({
   doubleTapWindowMs: 340,
   mouseSensitivity: 0.0021,
   initialCameraPitch: 0.28,
-  // The small pole buffer prevents the follow camera from flipping at 90°,
-  // while still allowing a full look from nearly straight up to nearly straight down.
+  // In flight the follow camera can still approach either pole. On the ground,
+  // PlayerController dynamically raises the lower pitch limit to keep the
+  // camera above the map floor and out of the hex undersides.
   minPitch: -Math.PI / 2 + 0.025,
   maxPitch: Math.PI / 2 - 0.025,
   cameraDistance: 10,
-  minCameraDistance: 5,
-  maxCameraDistance: 17,
   cameraTargetHeight: 1.05,
-  zoomStep: 0.9,
+  cameraFloorClearance: 0.24,
 });
