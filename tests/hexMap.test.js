@@ -107,3 +107,18 @@ test('each unshared hex side is collidable perimeter wall geometry', () => {
     assert.ok(Math.hypot(resolved.x - point.x, resolved.z - point.z) > 1, boundary.id);
   }
 });
+
+test('every sector has a distinct floor color and gates are narrower', () => {
+  const map = makeMap();
+  assert.ok(MAP_CONFIG.gateWidth < 40, `Gate width ${MAP_CONFIG.gateWidth} should be narrower`);
+  const colors = new Set();
+  for (const sector of map.sectors) {
+    const mesh = map.sectorMeshes.get(sector.id);
+    assert.ok(mesh, `Floor mesh missing for ${sector.id}`);
+    const hexColor = mesh.material.color.getHex();
+    assert.ok(!colors.has(hexColor), `Color ${hexColor} is duplicated in sector ${sector.id}`);
+    colors.add(hexColor);
+  }
+  assert.equal(colors.size, map.sectors.length);
+});
+

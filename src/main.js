@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import './style.css';
-import { MAP_CONFIG, PLAYER_CONFIG } from './config/mapConfig.js';
+import { MAP_CONFIG, PLAYER_CONFIG, getSectorInfo } from './config/mapConfig.js';
 import { HexMap } from './world/HexMap.js';
 import { PlayerController } from './player/PlayerController.js';
 
@@ -114,12 +114,35 @@ window.addEventListener('resize', resize);
 resize();
 updatePrompt();
 
+const footerCoordinate = document.querySelector('.footer-coordinate');
+let currentSectorId = null;
+
+function updateSectorDisplay() {
+  if (!footerCoordinate) return;
+  const sector = world.getSectorAt(player.position.x, player.position.z);
+  const sectorId = sector?.id ?? null;
+  if (sectorId !== currentSectorId) {
+    currentSectorId = sectorId;
+    if (sectorId) {
+      const info = getSectorInfo(sector.id, sector.order);
+      footerCoordinate.textContent = `· ${info.name.toUpperCase()}`;
+      footerCoordinate.style.color = `#${info.accent.toString(16).padStart(6, '0')}`;
+    } else {
+      footerCoordinate.textContent = '—';
+      footerCoordinate.style.color = '';
+    }
+  }
+}
+
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
 
-  if (!debugMode) player.update(delta);
+  if (!debugMode) {
+    player.update(delta);
+    updateSectorDisplay();
+  }
   world.updateDebugPlayer(player.position);
   renderer.render(scene, debugMode ? overviewCamera : camera);
 }
