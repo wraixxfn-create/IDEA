@@ -3,6 +3,9 @@ import { isPointInsideHex } from './hexGrid.js';
 
 const TREE_HEIGHT = 34;
 const UP = new THREE.Vector3(0, 1, 0);
+// Every bough gets a fuller radial spray. The additional upward and
+// downward blades keep the canopy readable as individual needles instead of
+// leaving transparent gaps between the branch tiers.
 const NEEDLE_SPRAY = Object.freeze([
   Object.freeze([0.92, 0.42, 0.00, 1.00]),
   Object.freeze([0.84, 0.40, 0.48, 0.94]),
@@ -11,6 +14,11 @@ const NEEDLE_SPRAY = Object.freeze([
   Object.freeze([0.56, 0.18, -0.82, 0.78]),
   Object.freeze([0.48, -0.46, 0.38, 0.88]),
   Object.freeze([0.48, -0.46, -0.38, 0.88]),
+  Object.freeze([0.72, 0.62, 0.26, 0.82]),
+  Object.freeze([0.72, 0.62, -0.26, 0.82]),
+  Object.freeze([0.66, -0.16, 0.66, 0.76]),
+  Object.freeze([0.66, -0.16, -0.66, 0.76]),
+  Object.freeze([0.34, 0.78, 0.00, 0.70]),
 ]);
 
 const NEEDLE_ROOT_COLORS = [
@@ -34,7 +42,7 @@ const CONE_COLORS = [
 
 // The open middle lanes lead back to the three portals. Tree positions stay
 // comfortably inside this one hex, while size, branching and orientation vary.
-const TREE_PLACEMENTS = Object.freeze([
+const CORE_TREE_PLACEMENTS = Object.freeze([
   Object.freeze({ x: -135, z: -116, scale: 0.92 }),
   Object.freeze({ x: -70, z: -132, scale: 0.86 }),
   Object.freeze({ x: 70, z: -129, scale: 1.08 }),
@@ -67,14 +75,55 @@ function between(random, min, max) {
   return min + random() * (max - min);
 }
 
-function makeTransform(position, scale, yaw) {
+function makeTransform(position, scale, yaw, y = 0) {
   return {
     x: position.x,
+    y,
     z: position.z,
     scale,
     cos: Math.cos(yaw),
     sin: Math.sin(yaw),
   };
+}
+
+function makeDenseTreePlacements(config) {
+  const targetCount = Math.max(
+    CORE_TREE_PLACEMENTS.length,
+    Math.floor(config.forestTreeCount ?? 52),
+  );
+  if (targetCount === CORE_TREE_PLACEMENTS.length) return CORE_TREE_PLACEMENTS;
+
+  const random = makeRandom(0xdecafbad);
+  const placements = [...CORE_TREE_PLACEMENTS];
+  const safeRadius = Math.max(20, config.hexRadius - 24);
+  let attempts = 0;
+
+  // Fill the interior with a deterministic scatter rather than a rigid grid.
+  // A narrow clearing remains between the southern gate and the central grove
+  // so the player can still read a path through the denser woodland.
+  while (placements.length < targetCount && attempts < targetCount * 300) {
+    attempts += 1;
+    const x = between(random, -safeRadius * 0.82, safeRadius * 0.82);
+    const z = between(random, -safeRadius * 0.78, safeRadius * 0.82);
+    if (!isPointInsideHex(x, z, 0, 0, safeRadius)) continue;
+    if (Math.abs(x) < 26 && z < 36) continue;
+
+    const tooClose = placements.some((placement) => (
+      Math.hypot(placement.x - x, placement.z - z) < 17
+    ));
+    if (tooClose) continue;
+
+    placements.push({
+      x,
+      z,
+      // Smaller saplings fill the gaps between the mature trees without
+      // turning every sightline into a solid wall of identical trunks.
+      scale: between(random, 0.56, 0.91),
+      foliageClass: 'dense-sapling',
+    });
+  }
+
+  return Object.freeze(placements);
 }
 
 class VertexColorGeometryBuilder {
@@ -91,12 +140,12 @@ class VertexColorGeometryBuilder {
 
   pushVertex(point, color) {
     if (this.transform) {
-      const { x, z, scale, cos, sin } = this.transform;
+      const { x, y, z, scale, cos, sin } = this.transform;
       const localX = point.x * scale;
       const localZ = point.z * scale;
       this.positions.push(
         x + localX * cos + localZ * sin,
-        point.y * scale,
+        y + point.y * scale,
         z - localX * sin + localZ * cos,
       );
     } else {
@@ -347,6 +396,85 @@ function addPineCone(builder, origin, direction, length, radius, random) {
   }
 }
 
+function addLowPolyFoliageCone(builder, center, radius, height, random) {
+  const segments = 7;
+  const tip = center.clone().add(new THREE.Vector3(0, height, 0));
+  const base = [];
+  for (let segment = 0; segment < segments; segment += 1) {
+    const angle = segment / segments * Math.PI * 2;
+    base.push(center.clone().add(new THREE.Vector3(
+      Math.cos(angle) * radius,
+      0,
+      Math.sin(angle) * radius,
+    )));
+  }
+  for (let segment = 0; segment < segments; segment += 1) {
+    const next = (segment + 1) % segments;
+    const bodyColor = NEEDLE_BODY_COLORS[(segment + Math.floor(random() * 3)) % NEEDLE_BODY_COLORS.length];
+    const tipColor = NEEDLE_TIP_COLORS[(segment + Math.floor(random() * 2)) % NEEDLE_TIP_COLORS.length];
+    builder.addTriangle(base[segment], base[next], tip, bodyColor, bodyColor, tipColor);
+  }
+}
+
+function addCompactNeedleFan(builder, center, radial, tangent, length, random, colorOffset = 0) {
+  for (const sideSign of [-1, 1]) {
+    const direction = radial.clone()
+      .addScaledVector(UP, 0.35)
+      .addScaledVector(tangent, sideSign * 0.48)
+      .normalize();
+    const start = center.clone().addScaledVector(radial, between(random, -0.08, 0.08));
+    const colorIndex = (colorOffset + Math.floor(random() * NEEDLE_BODY_COLORS.length))
+      % NEEDLE_BODY_COLORS.length;
+    addNeedleBlade(
+      builder,
+      start,
+      direction,
+      length * between(random, 0.78, 1.06),
+      length * 0.1,
+      NEEDLE_ROOT_COLORS[colorIndex % NEEDLE_ROOT_COLORS.length],
+      NEEDLE_BODY_COLORS[colorIndex],
+      NEEDLE_TIP_COLORS[colorIndex % NEEDLE_TIP_COLORS.length],
+    );
+  }
+}
+
+function buildPineSapling(woodBuilder, needleBuilder, random) {
+  const height = between(random, 15, 24);
+  const leanX = between(random, -0.22, 0.22);
+  const leanZ = between(random, -0.18, 0.18);
+  const trunkPoints = [
+    trunkCenterAt(height, 0, leanX, leanZ),
+    trunkCenterAt(height, 0.48, leanX, leanZ),
+    trunkCenterAt(height, 1, leanX, leanZ),
+  ];
+  addTubePath(woodBuilder, trunkPoints, [0.32, 0.16, 0.025], random, {
+    radialSegments: 6,
+    palette: BARK_COLORS,
+  });
+
+  for (let tier = 0; tier < 4; tier += 1) {
+    const progress = tier / 3;
+    const tierHeight = height * (0.22 + progress * 0.61);
+    const center = trunkCenterAt(height, tierHeight / height, leanX, leanZ);
+    const radius = (height * 0.16) * (1 - progress * 0.7);
+    addLowPolyFoliageCone(needleBuilder, center, radius, height * 0.22, random);
+    for (let branch = 0; branch < 3; branch += 1) {
+      const angle = (branch / 3) * Math.PI * 2 + tier * 1.7;
+      const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+      const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
+      addCompactNeedleFan(
+        needleBuilder,
+        center.clone().addScaledVector(radial, radius * 0.62),
+        radial,
+        tangent,
+        Math.max(0.55, radius * 0.32),
+        random,
+        tier + branch,
+      );
+    }
+  }
+}
+
 function buildPineTree(woodBuilder, needleBuilder, random) {
   const height = TREE_HEIGHT;
   const leanX = between(random, -0.35, 0.35);
@@ -475,7 +603,7 @@ function buildPineTree(woodBuilder, needleBuilder, random) {
   }
 }
 
-export function buildPineGrove(sector, config) {
+export function buildPineGrove(sector, config, floorHeightAt = null) {
   if (!sector || sector.id !== 'HEX_S') return null;
 
   const woodBuilder = new VertexColorGeometryBuilder('PineGrove_Wood_HEX_S');
@@ -485,15 +613,27 @@ export function buildPineGrove(sector, config) {
   group.position.set(sector.center.x, config.floorHeight, sector.center.z);
   group.userData.sectorId = sector.id;
 
-  const placements = TREE_PLACEMENTS.map((placement, index) => {
+  const placements = makeDenseTreePlacements(config).map((placement, index) => {
     const seed = 0x51f15e + index * 977;
     const random = makeRandom(seed);
     const yaw = random() * Math.PI * 2;
-    const transform = makeTransform(placement, placement.scale, yaw);
+    const worldX = sector.center.x + placement.x;
+    const worldZ = sector.center.z + placement.z;
+    const worldFloor = typeof floorHeightAt === 'function'
+      ? floorHeightAt(worldX, worldZ)
+      : config.floorHeight;
+    const terrainOffset = Number.isFinite(worldFloor)
+      ? worldFloor - config.floorHeight
+      : 0;
+    const transform = makeTransform(placement, placement.scale, yaw, terrainOffset);
     woodBuilder.setTransform(transform);
     needleBuilder.setTransform(transform);
-    buildPineTree(woodBuilder, needleBuilder, random);
-    return { ...placement, yaw, seed };
+    if (index < CORE_TREE_PLACEMENTS.length) {
+      buildPineTree(woodBuilder, needleBuilder, random);
+    } else {
+      buildPineSapling(woodBuilder, needleBuilder, random);
+    }
+    return { ...placement, yaw, seed, terrainOffset };
   });
 
   const woodMaterial = new THREE.MeshStandardMaterial({
@@ -520,7 +660,15 @@ export function buildPineGrove(sector, config) {
   needles.castShadow = true;
   group.add(wood, needles);
 
-  group.userData.treeCount = placements.length;
+  // `treeCount` remains the mature-pine count used by the original map HUD;
+  // totalTreeCount includes the new dense saplings that fill the grove.
+  group.userData.treeCount = CORE_TREE_PLACEMENTS.length;
+  group.userData.totalTreeCount = placements.length;
+  group.userData.visibleTreeCount = placements.length;
+  group.userData.matureTreeCount = CORE_TREE_PLACEMENTS.length;
+  group.userData.saplingCount = Math.max(0, placements.length - CORE_TREE_PLACEMENTS.length);
+  group.userData.canopyDensity = 'dense';
+  group.userData.forestDensity = placements.length;
   group.userData.treePlacements = placements;
   group.userData.foliageType = 'mature-pine';
 

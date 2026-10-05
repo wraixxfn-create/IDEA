@@ -32,7 +32,9 @@ export const SECTOR_DEFINITIONS = Object.freeze({
   HEX_S: Object.freeze({
     id: 'HEX_S',
     name: 'Amethyst South',
-    color: 0x7e22ce, // Imperial Amethyst / Royal Purple
+    // HEX_S is now the forest biome: the sector colour is kept as a violet
+    // accent for portals, while its floor is replaced by soil and leaf litter.
+    color: 0x574034,
     accent: 0xc084fc,
   }),
   HEX_SW: Object.freeze({
@@ -103,9 +105,32 @@ export const MAP_CONFIG = Object.freeze({
   doorMotionSpeed: 3.2,
   cornerOverlap: 3,
   floorColor: 0xd99b26,
+  // Forest-biome materials for HEX_S. The soil remains visible between the
+  // thousands of low-poly leaves scattered over the uneven ground.
+  forestSoilColor: 0x4f3829,
+  forestSoilDarkColor: 0x35251d,
+  forestLeafColors: Object.freeze([
+    0x6f4528, 0x8b5a2b, 0xa87338, 0x4d652d, 0x9b7a3e,
+  ]),
+  forestTerrainAmplitude: 8.5,
+  forestTerrainEdgeBlend: 34,
+  forestTerrainCenterBlend: 20,
+  forestLeafCount: 1350,
+  forestTreeCount: 52,
   wallColor: 0x545d61,
   gateFrameColor: 0x22272a,
-  backgroundColor: 0x7b888c,
+  backgroundColor: 0x425c60,
+  // Each cell receives a transparent, curved shell whose spring line sits on
+  // the top of its 45-unit wall. The domes are visual only, not colliders.
+  domeBaseHeight: 45,
+  domeHeight: 118,
+  domeRadialSegments: 12,
+  domeVerticalSegments: 8,
+  domeColor: 0x8cc9c0,
+  domeOpacity: 0.14,
+  domeRibColor: 0xb6f4df,
+  forestLightColors: Object.freeze([0x9bf2bf, 0xffc477, 0x70d8c9]),
+  forestLightIntensity: 1.9,
   sectorColors: SECTOR_COLORS,
 });
 

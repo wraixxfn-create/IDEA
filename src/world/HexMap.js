@@ -22,6 +22,221 @@ function createFloorGeometry(radius) {
   return geometry;
 }
 
+function smoothStep(value, start, end) {
+  if (end <= start) return value >= end ? 1 : 0;
+  const t = THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function hexBoundaryDistanceAtAngle(radius, angle) {
+  const apothem = radius * Math.sqrt(3) / 2;
+  // The side normals are at 30-degree increments. Projecting the ray onto
+  // the nearest normal gives the exact intersection with the flat-top hex.
+  const nearestNormal = Math.round((angle - Math.PI / 6) / (Math.PI / 3))
+    * (Math.PI / 3) + Math.PI / 6;
+  return apothem / Math.cos(angle - nearestNormal);
+}
+
+function distanceToHexEdge(x, z, radius) {
+  const apothem = radius * Math.sqrt(3) / 2;
+  let nearest = apothem;
+  for (let side = 0; side < 6; side += 1) {
+    const normalAngle = Math.PI / 6 + side * Math.PI / 3;
+    const projection = x * Math.cos(normalAngle) + z * Math.sin(normalAngle);
+    nearest = Math.min(nearest, apothem - projection);
+  }
+  return nearest;
+}
+
+function forestTerrainOffset(x, z, radius, config) {
+  // Keep the exact centre and all six sides at the original floor height. The
+  // first condition is also useful for the initial spawn and for old callers
+  // that use the sector centre as a canonical floor sample.
+  if (Math.hypot(x, z) < 1e-7) return 0;
+  const edgeDistance = Math.max(0, distanceToHexEdge(x, z, radius));
+  const edgeMask = smoothStep(
+    edgeDistance,
+    0,
+    config.forestTerrainEdgeBlend ?? 34,
+  );
+  const centerMask = smoothStep(
+    Math.hypot(x, z),
+    0,
+    config.forestTerrainCenterBlend ?? 20,
+  );
+  const wave = (
+    Math.sin(x * 0.031 + z * 0.014 + 0.7) * 0.46
+    + Math.sin(x * 0.067 - z * 0.024 - 1.3) * 0.30
+    + Math.cos((x + z) * 0.043) * 0.24
+  );
+  return (config.forestTerrainAmplitude ?? 8.5) * edgeMask * centerMask * wave;
+}
+
+function createForestTerrainGeometry(radius, config) {
+  const radialSegments = 18;
+  const ringCount = 11;
+  const sampleCount = radialSegments * 6;
+  const positions = [0, forestTerrainOffset(0, 0, radius, config), 0];
+  const indices = [];
+
+  for (let ring = 1; ring <= ringCount; ring += 1) {
+    const radialScale = ring / ringCount;
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      const angle = sample / sampleCount * Math.PI * 2;
+      const boundary = hexBoundaryDistanceAtAngle(radius, angle);
+      const x = Math.cos(angle) * boundary * radialScale;
+      const z = Math.sin(angle) * boundary * radialScale;
+      positions.push(x, forestTerrainOffset(x, z, radius, config), z);
+    }
+  }
+
+  for (let sample = 0; sample < sampleCount; sample += 1) {
+    const next = (sample + 1) % sampleCount;
+    // Reverse the x/z winding so the face normal points upward (+Y).
+    indices.push(0, 1 + next, 1 + sample);
+  }
+
+  for (let ring = 2; ring <= ringCount; ring += 1) {
+    const innerStart = 1 + (ring - 2) * sampleCount;
+    const outerStart = 1 + (ring - 1) * sampleCount;
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      const next = (sample + 1) % sampleCount;
+      const inner = innerStart + sample;
+      const innerNext = innerStart + next;
+      const outer = outerStart + sample;
+      const outerNext = outerStart + next;
+      indices.push(inner, outerNext, outer);
+      indices.push(inner, innerNext, outerNext);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.name = 'ForestTerrainGeometry_HEX_S';
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createLeafGeometry() {
+  // A small four-sided leaf with a raised central ridge. It is intentionally
+  // double-sided so every leaf remains readable from the third-person camera.
+  const positions = [
+    0, 0.035, 0,
+    -0.52, 0, 0.16,
+    0, 0.01, 0.72,
+    0.52, 0, 0.16,
+    0, 0.035, 0,
+    0, 0.01, 0.72,
+    -0.52, 0, 0.16,
+    0, 0.035, 0,
+    0.52, 0, 0.16,
+    0, 0.01, 0.72,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.name = 'LeafLitterLeafGeometry';
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function createHexDomeGeometry(radius, baseHeight, domeHeight, radialSegments, verticalSegments) {
+  const sampleCount = radialSegments * 6;
+  const positions = [];
+  const indices = [];
+  const rings = [];
+
+  for (let row = 0; row < verticalSegments; row += 1) {
+    const progress = row / verticalSegments;
+    const profile = Math.cos(progress * Math.PI / 2);
+    const y = baseHeight + Math.sin(progress * Math.PI / 2) * domeHeight;
+    const ringStart = positions.length / 3;
+    rings.push(ringStart);
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      const angle = sample / sampleCount * Math.PI * 2;
+      const boundary = hexBoundaryDistanceAtAngle(radius, angle);
+      positions.push(
+        Math.cos(angle) * boundary * profile,
+        y,
+        Math.sin(angle) * boundary * profile,
+      );
+    }
+  }
+
+  const apexIndex = positions.length / 3;
+  positions.push(0, baseHeight + domeHeight, 0);
+  for (let row = 0; row < rings.length - 1; row += 1) {
+    const innerStart = rings[row];
+    const outerStart = rings[row + 1];
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      const next = (sample + 1) % sampleCount;
+      const inner = innerStart + sample;
+      const innerNext = innerStart + next;
+      const outer = outerStart + sample;
+      const outerNext = outerStart + next;
+      indices.push(inner, outer, outerNext);
+      indices.push(inner, outerNext, innerNext);
+    }
+  }
+
+  const finalRing = rings[rings.length - 1];
+  for (let sample = 0; sample < sampleCount; sample += 1) {
+    const next = (sample + 1) % sampleCount;
+    indices.push(finalRing + sample, apexIndex, finalRing + next);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.name = 'HexagonalDomeGeometry';
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createHexDomeRibGeometry(radius, baseHeight, domeHeight, radialSegments, verticalSegments) {
+  const sampleCount = radialSegments * 6;
+  const positions = [];
+  const addLine = (a, b) => positions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+  const pointAt = (angle, progress) => {
+    const profile = Math.cos(progress * Math.PI / 2);
+    const boundary = hexBoundaryDistanceAtAngle(radius, angle);
+    return new THREE.Vector3(
+      Math.cos(angle) * boundary * profile,
+      baseHeight + Math.sin(progress * Math.PI / 2) * domeHeight,
+      Math.sin(angle) * boundary * profile,
+    );
+  };
+
+  // Hex perimeter and curved horizontal rings make the transparent shell read
+  // as architecture rather than as an accidental fog layer.
+  for (let row = 0; row < verticalSegments; row += 1) {
+    const progress = row / verticalSegments;
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      addLine(
+        pointAt(sample / sampleCount * Math.PI * 2, progress),
+        pointAt((sample + 1) % sampleCount / sampleCount * Math.PI * 2, progress),
+      );
+    }
+  }
+  for (let sample = 0; sample < 6; sample += 1) {
+    const angle = sample / 6 * Math.PI * 2;
+    for (let row = 0; row < verticalSegments - 1; row += 1) {
+      addLine(pointAt(angle, row / verticalSegments), pointAt(angle, (row + 1) / verticalSegments));
+    }
+    addLine(pointAt(angle, (verticalSegments - 1) / verticalSegments),
+      new THREE.Vector3(0, baseHeight + domeHeight, 0));
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.name = 'HexagonalDomeRibs';
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function createHexRingGeometry(innerRadius, outerRadius) {
   const innerVerts = getHexVertices(0, 0, innerRadius);
   const outerVerts = getHexVertices(0, 0, outerRadius);
@@ -121,7 +336,9 @@ export class HexMap {
     scene.add(this.group);
 
     this.floorGeometry = createFloorGeometry(config.hexRadius);
+    this.forestTerrainGeometry = createForestTerrainGeometry(config.hexRadius, config);
     this.floorRingGeometry = createHexRingGeometry(config.hexRadius * 0.88, config.hexRadius * 0.905);
+    this.leafGeometry = createLeafGeometry();
 
     this.floorMaterial = new THREE.MeshStandardMaterial({
       color: config.floorColor ?? 0xd99b26,
@@ -132,6 +349,24 @@ export class HexMap {
       color: 0x182024,
       roughness: 0.5,
       metalness: 0.45,
+    });
+    this.forestSoilMaterial = new THREE.MeshStandardMaterial({
+      color: config.forestSoilColor ?? 0x4f3829,
+      roughness: 0.98,
+      metalness: 0,
+      flatShading: true,
+    });
+    this.forestSoilBorderMaterial = new THREE.MeshStandardMaterial({
+      color: config.forestSoilDarkColor ?? 0x35251d,
+      roughness: 1,
+      metalness: 0,
+    });
+    this.forestLeafMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 0.96,
+      metalness: 0,
+      side: THREE.DoubleSide,
     });
     this.wallMaterial = new THREE.MeshStandardMaterial({
       color: config.wallColor ?? 0x545d61,
@@ -186,6 +421,15 @@ export class HexMap {
     this.doors = [];
     this.sectorMeshes = new Map();
     this.floorMaterials = new Map();
+    this.domeMeshes = new Map();
+    this.domes = this.domeMeshes;
+    this.domeRibMeshes = new Map();
+    this.sectorLights = new Map();
+    this.forestLeafLitter = null;
+    this.leafLitter = null;
+    this.forestGround = null;
+    this.forestLighting = null;
+    this.forestLightTime = 0;
 
     this.debugGroup = new THREE.Group();
     this.debugGroup.name = 'HexMapDebug';
@@ -193,7 +437,13 @@ export class HexMap {
     this.group.add(this.debugGroup);
 
     this.buildFloors();
-    this.pineGrove = buildPineGrove(this.sectorById.get('HEX_S'), config);
+    this.buildDomeRoofs();
+    this.buildSectorLighting();
+    this.pineGrove = buildPineGrove(
+      this.sectorById.get('HEX_S'),
+      config,
+      (x, z) => this.getFloorHeightAt(x, z),
+    );
     if (this.pineGrove) this.group.add(this.pineGrove);
     this.buildWallsAndGates();
     this.buildDebugView();
@@ -201,32 +451,256 @@ export class HexMap {
 
   buildFloors() {
     for (const sector of this.sectors) {
-      const color = this.config.sectorColors?.[sector.id]
-        ?? getSectorColor(sector.id, sector.order);
-
-      const sectorFloorMaterial = new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.80,
-        metalness: 0.06,
-      });
+      const isForest = sector.id === 'HEX_S';
+      const color = isForest
+        ? (this.config.forestSoilColor ?? 0x4f3829)
+        : (this.config.sectorColors?.[sector.id]
+          ?? getSectorColor(sector.id, sector.order));
+      const sectorFloorMaterial = isForest
+        ? this.forestSoilMaterial
+        : new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.80,
+          metalness: 0.06,
+        });
       this.floorMaterials.set(sector.id, sectorFloorMaterial);
 
-      const floor = new THREE.Mesh(this.floorGeometry, sectorFloorMaterial);
+      const floor = new THREE.Mesh(
+        isForest ? this.forestTerrainGeometry : this.floorGeometry,
+        sectorFloorMaterial,
+      );
       floor.name = `Floor_${sector.id}`;
       floor.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
-      floor.receiveShadow = false;
+      floor.receiveShadow = true;
       floor.userData.sectorId = sector.id;
+      floor.userData.biome = isForest ? 'forest-soil-and-leaves' : 'sector-floor';
+      floor.userData.terrain = isForest ? 'interior-undulation-edge-flat' : 'flat';
+      if (isForest) {
+        floor.userData.terrainAmplitude = this.config.forestTerrainAmplitude ?? 8.5;
+        floor.userData.edgeBlend = this.config.forestTerrainEdgeBlend ?? 34;
+      }
       this.group.add(floor);
       this.sectorMeshes.set(sector.id, floor);
+      if (isForest) this.forestTerrainMesh = floor;
 
-      // Elegant inner hex border ring on each floor
-      const ring = new THREE.Mesh(this.floorRingGeometry, this.floorRingMaterial);
+      // The thin border is deliberately kept at the base level. HEX_S terrain
+      // fades back to that exact height before every shared edge.
+      const ring = new THREE.Mesh(
+        this.floorRingGeometry,
+        isForest ? this.forestSoilBorderMaterial : this.floorRingMaterial,
+      );
       ring.name = `FloorRing_${sector.id}`;
       ring.position.set(sector.center.x, this.config.floorHeight + 0.02, sector.center.z);
       this.group.add(ring);
 
-
+      if (isForest) {
+        this.forestLeafLitter = this.buildForestLeafLitter(sector);
+        this.leafLitter = this.forestLeafLitter;
+        this.forestGround = this.forestLeafLitter;
+      }
     }
+  }
+
+  buildForestLeafLitter(sector) {
+    const count = Math.max(0, Math.floor(this.config.forestLeafCount ?? 1350));
+    const group = new THREE.Group();
+    group.name = 'ForestFloor_HEX_S';
+    group.userData.sectorId = sector.id;
+    group.userData.coverType = 'soil-and-leaf-litter';
+    group.userData.leafCount = count;
+    group.position.set(0, 0, 0);
+
+    if (count === 0) {
+      this.group.add(group);
+      return group;
+    }
+
+    const leafMesh = new THREE.InstancedMesh(this.leafGeometry, this.forestLeafMaterial, count);
+    leafMesh.name = 'LeafLitter_HEX_S';
+    leafMesh.userData.sectorId = sector.id;
+    leafMesh.userData.coverType = 'fallen-leaves';
+    leafMesh.userData.leafCount = count;
+    leafMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    leafMesh.castShadow = false;
+    leafMesh.receiveShadow = true;
+
+    let state = 0x1ee7c0de;
+    const random = () => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 0x100000000;
+    };
+    const transform = new THREE.Object3D();
+    const colors = this.config.forestLeafColors?.length
+      ? this.config.forestLeafColors
+      : [0x8b5a2b, 0x6f4528, 0x4d652d];
+    const safeRadius = Math.max(10, this.config.hexRadius - 10);
+
+    for (let index = 0; index < count; index += 1) {
+      let localX = 0;
+      let localZ = 0;
+      do {
+        localX = (random() * 2 - 1) * safeRadius;
+        localZ = (random() * 2 - 1) * safeRadius;
+      } while (!isPointInsideHex(localX, localZ, 0, 0, safeRadius));
+
+      const worldX = sector.center.x + localX;
+      const worldZ = sector.center.z + localZ;
+      const floorY = this.getFloorHeightAt(worldX, worldZ) ?? this.config.floorHeight;
+      const size = 1.25 + random() * 2.15;
+      transform.position.set(worldX, floorY + 0.22 + random() * 0.06, worldZ);
+      transform.rotation.set(
+        (random() - 0.5) * 0.28,
+        random() * Math.PI * 2,
+        (random() - 0.5) * 0.28,
+      );
+      transform.scale.set(size * (0.72 + random() * 0.52), size, size * (0.74 + random() * 0.45));
+      transform.updateMatrix();
+      leafMesh.setMatrixAt(index, transform.matrix);
+      leafMesh.setColorAt(index, new THREE.Color(colors[index % colors.length]));
+    }
+
+    leafMesh.instanceMatrix.needsUpdate = true;
+    if (leafMesh.instanceColor) leafMesh.instanceColor.needsUpdate = true;
+    leafMesh.computeBoundingSphere();
+    group.add(leafMesh);
+    this.group.add(group);
+    return group;
+  }
+
+  buildDomeRoofs() {
+    this.domeGroup = new THREE.Group();
+    this.domeGroup.name = 'HexDomeRoofs';
+    this.domeGroup.userData.cellCount = this.sectors.length;
+    this.domeGroup.userData.domeCount = this.sectors.length;
+    this.domeGroup.userData.roofType = 'transparent-hexagonal-cupola';
+    this.domeRoofs = this.domeGroup;
+    this.group.add(this.domeGroup);
+
+    const domeMaterial = new THREE.MeshStandardMaterial({
+      color: this.config.domeColor ?? 0x8cc9c0,
+      emissive: 0x214b4b,
+      emissiveIntensity: 0.26,
+      roughness: 0.32,
+      metalness: 0.08,
+      transparent: true,
+      opacity: this.config.domeOpacity ?? 0.14,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const ribMaterial = new THREE.LineBasicMaterial({
+      color: this.config.domeRibColor ?? 0xb6f4df,
+      transparent: true,
+      opacity: 0.48,
+      depthWrite: false,
+    });
+    this.domeMaterial = domeMaterial;
+    this.domeRibMaterial = ribMaterial;
+
+    const baseHeight = this.config.domeBaseHeight ?? this.config.wallHeight;
+    const domeHeight = this.config.domeHeight ?? 118;
+    const radialSegments = this.config.domeRadialSegments ?? 12;
+    const verticalSegments = this.config.domeVerticalSegments ?? 8;
+    for (const sector of this.sectors) {
+      const domeCell = new THREE.Group();
+      domeCell.name = `DomeCell_${sector.id}`;
+      domeCell.userData.sectorId = sector.id;
+      domeCell.userData.roofType = 'cupola';
+      this.domeGroup.add(domeCell);
+
+      const dome = new THREE.Mesh(
+        createHexDomeGeometry(
+          this.config.hexRadius,
+          0,
+          domeHeight,
+          radialSegments,
+          verticalSegments,
+        ),
+        domeMaterial,
+      );
+      dome.name = `Dome_${sector.id}`;
+      dome.position.set(
+        sector.center.x,
+        this.config.floorHeight + baseHeight,
+        sector.center.z,
+      );
+      dome.renderOrder = 20;
+      dome.userData.sectorId = sector.id;
+      dome.userData.roofType = 'cupola';
+      dome.userData.baseHeight = baseHeight;
+      dome.userData.domeHeight = domeHeight;
+      dome.userData.collidable = false;
+      domeCell.add(dome);
+      this.domeMeshes.set(sector.id, dome);
+
+      const ribs = new THREE.LineSegments(
+        createHexDomeRibGeometry(
+          this.config.hexRadius,
+          0.12,
+          domeHeight,
+          radialSegments,
+          verticalSegments,
+        ),
+        ribMaterial,
+      );
+      ribs.name = `DomeRibs_${sector.id}`;
+      ribs.position.set(
+        sector.center.x,
+        this.config.floorHeight + baseHeight,
+        sector.center.z,
+      );
+      ribs.renderOrder = 21;
+      ribs.userData.sectorId = sector.id;
+      domeCell.add(ribs);
+      this.domeRibMeshes.set(sector.id, ribs);
+    }
+  }
+
+  buildSectorLighting() {
+    const sector = this.sectorById.get('HEX_S');
+    if (!sector) return;
+
+    const group = new THREE.Group();
+    group.name = 'SectorLighting_HEX_S';
+    group.userData.sectorId = sector.id;
+    group.userData.biome = 'forest-canopy-light';
+    this.group.add(group);
+
+    const hemisphere = new THREE.HemisphereLight(0xc3f5d4, 0x2c2017, 0.48);
+    hemisphere.name = 'HEX_S_ForestHemisphere';
+    hemisphere.position.set(sector.center.x, this.config.floorHeight + 65, sector.center.z);
+    hemisphere.userData.sectorId = sector.id;
+    group.add(hemisphere);
+
+    const lightColors = this.config.forestLightColors ?? [0x9bf2bf, 0xffc477, 0x70d8c9];
+    const placements = [
+      { x: -92, y: 28, z: 58, color: lightColors[0], intensity: 1.05 },
+      { x: 86, y: 34, z: 76, color: lightColors[1], intensity: 0.92 },
+      { x: 14, y: 23, z: -74, color: lightColors[2], intensity: 0.82 },
+    ];
+    this.forestPointLights = [];
+    for (const placement of placements) {
+      const light = new THREE.PointLight(
+        placement.color,
+        (this.config.forestLightIntensity ?? 1.9) * placement.intensity,
+        270,
+        1.55,
+      );
+      light.name = `HEX_S_ForestLight_${this.forestPointLights.length}`;
+      light.position.set(
+        sector.center.x + placement.x,
+        this.config.floorHeight + placement.y,
+        sector.center.z + placement.z,
+      );
+      light.userData.sectorId = sector.id;
+      light.userData.baseIntensity = light.intensity;
+      light.userData.phase = this.forestPointLights.length * 1.7;
+      group.add(light);
+      this.forestPointLights.push(light);
+    }
+
+    this.forestLighting = group;
+    this.hexSLights = group;
+    this.sectorLights.set(sector.id, group);
   }
 
   addBoxRecord(target, edge, offsetAlong, length, height, thickness, y, extra = {}) {
@@ -760,6 +1234,16 @@ export class HexMap {
       matricesDirty = true;
     }
     if (matricesDirty) this.flushDoorPartMatrices();
+
+    // The forest lights breathe very subtly, like sunlight moving through a
+    // canopy. This is deliberately restrained so the changed HEX_S lighting
+    // feels atmospheric rather than like a flashing effect.
+    this.forestLightTime += dt;
+    for (const light of this.forestPointLights ?? []) {
+      const baseIntensity = light.userData.baseIntensity ?? light.intensity;
+      const phase = light.userData.phase ?? 0;
+      light.intensity = baseIntensity * (0.91 + Math.sin(this.forestLightTime * 0.8 + phase) * 0.06);
+    }
   }
 
   createInstancedBoxes(records, material, name) {
@@ -897,17 +1381,20 @@ export class HexMap {
     return null;
   }
 
+  getTerrainHeightAt(x, z) {
+    const sector = this.getSectorAt(x, z);
+    if (!sector) return null;
+    if (sector.id !== 'HEX_S') return this.config.floorHeight;
+    return this.config.floorHeight + forestTerrainOffset(
+      x - sector.center.x,
+      z - sector.center.z,
+      this.config.hexRadius,
+      this.config,
+    );
+  }
+
   getFloorHeightAt(x, z) {
-    for (const sector of this.sectors) {
-      if (isPointInsideHex(
-        x,
-        z,
-        sector.center.x,
-        sector.center.z,
-        this.config.hexRadius,
-      )) return this.config.floorHeight;
-    }
-    return null;
+    return this.getTerrainHeightAt(x, z);
   }
 
   resolveHorizontalPosition(
