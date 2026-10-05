@@ -46,6 +46,9 @@ test('one reusable map generates seven floors, twelve gates and a closed outside
   assert.equal(map.boundaryEdges.length, 18);
   assert.equal(map.wallInstancedMesh.count, 42);
   assert.equal(map.frameInstancedMesh.count, 36);
+  assert.equal(map.portalBezels.count, 24, 'each gate has a beveled surround on both faces');
+  assert.equal(map.portalLightRings.count, 24, 'each gate has a sector-colored light ring on both faces');
+  assert.equal(map.portalCrests.count, 24, 'each gate has a hex crest on both faces');
   assert.equal(map.debugGroup.visible, false);
   for (const sector of map.sectors) {
     assert.equal(map.getFloorHeightAt(sector.center.x, sector.center.z), MAP_CONFIG.floorHeight);
@@ -106,6 +109,30 @@ test('each unshared hex side is collidable perimeter wall geometry', () => {
     const resolved = map.resolveHorizontalPosition(point.x, point.z, PLAYER_CONFIG.radius);
     assert.ok(Math.hypot(resolved.x - point.x, resolved.z - point.z) > 1, boundary.id);
   }
+});
+
+test('flight clears walls only after the player rises above their top edge', () => {
+  const map = makeMap();
+  const boundary = map.boundaryEdges[0];
+  const point = { x: boundary.center.x, z: boundary.center.z };
+
+  const grounded = map.resolveHorizontalPosition(
+    point.x,
+    point.z,
+    PLAYER_CONFIG.radius,
+    MAP_CONFIG.floorHeight,
+    PLAYER_CONFIG.height,
+  );
+  assert.ok(Math.hypot(grounded.x - point.x, grounded.z - point.z) > 1);
+
+  const airborne = map.resolveHorizontalPosition(
+    point.x,
+    point.z,
+    PLAYER_CONFIG.radius,
+    MAP_CONFIG.wallHeight + 0.2,
+    PLAYER_CONFIG.height,
+  );
+  assert.ok(Math.hypot(airborne.x - point.x, airborne.z - point.z) < 1e-6);
 });
 
 test('every sector has a distinct floor color and gates are narrower', () => {
