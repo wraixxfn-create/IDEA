@@ -3,6 +3,7 @@ import './style.css';
 import { MAP_CONFIG, PLAYER_CONFIG, getSectorInfo } from './config/mapConfig.js';
 import { HexMap } from './world/HexMap.js';
 import { PlayerController } from './player/PlayerController.js';
+import { resolveSunDirection } from './world/SkyDome.js';
 
 const viewport = document.querySelector('#viewport');
 const enterButton = document.querySelector('#enter-world');
@@ -14,6 +15,9 @@ const debugState = document.querySelector('#debug-state');
 const flightState = document.querySelector('#flight-state');
 
 const scene = new THREE.Scene();
+// The same sun paints every cupola, lights the world and casts the key light,
+// so the sky the player sees and the light they walk in always agree.
+const sunDirection = resolveSunDirection(MAP_CONFIG);
 scene.background = new THREE.Color(MAP_CONFIG.backgroundColor);
 
 const renderer = new THREE.WebGLRenderer({
@@ -30,10 +34,21 @@ viewport.prepend(renderer.domElement);
 
 // A cooler, lower global wash leaves room for the warmer biomes and the new
 // green/amber canopy lights inside HEX_S to read as a distinct environment.
-scene.add(new THREE.HemisphereLight(0xd7eee4, 0x26352e, 1.22));
-const keyLight = new THREE.DirectionalLight(0xffe6bd, 0.92);
-keyLight.position.set(-260, 420, -180);
+scene.add(new THREE.HemisphereLight(
+  MAP_CONFIG.sunAmbientColor ?? 0xd7eee4,
+  MAP_CONFIG.groundBounceColor ?? 0x26352e,
+  1.06,
+));
+const keyLight = new THREE.DirectionalLight(
+  MAP_CONFIG.sunColor ?? 0xffe6bd,
+  MAP_CONFIG.sunIntensity ?? 0.92,
+);
+// Aim the key light straight out of the painted sun: 900 units is far enough
+// that the whole eight-sector map is lit from exactly the sky's direction.
+keyLight.position.copy(sunDirection).multiplyScalar(900);
+keyLight.target.position.set(0, MAP_CONFIG.floorHeight, 0);
 scene.add(keyLight);
+scene.add(keyLight.target);
 
 const world = new HexMap(scene, MAP_CONFIG);
 const camera = new THREE.PerspectiveCamera(
@@ -168,6 +183,21 @@ function updateSectorDisplay() {
       footerCoordinate.style.color = '';
     }
   }
+}
+
+// A small handle on the running world, handy while developing and for the
+// automated visual checks. It is stripped from production builds.
+if (import.meta.env?.DEV) {
+  window.__hexfield = {
+    scene,
+    camera,
+    renderer,
+    world,
+    player,
+    overviewCamera,
+    sunDirection,
+    setDebugMode,
+  };
 }
 
 const clock = new THREE.Clock();

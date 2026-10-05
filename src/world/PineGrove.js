@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { isPointInsideHex } from './hexGrid.js';
+import { between, makeRandom } from './random.js';
+import { applyWindSway } from './wind.js';
 
 const TREE_HEIGHT = 34;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -62,18 +64,6 @@ const CORE_TREE_PLACEMENTS = Object.freeze([
   Object.freeze({ x: -73, z: 155, scale: 1.02 }),
   Object.freeze({ x: 73, z: 155, scale: 0.88 }),
 ]);
-
-function makeRandom(seed) {
-  let state = seed >>> 0;
-  return () => {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    return state / 0x100000000;
-  };
-}
-
-function between(random, min, max) {
-  return min + random() * (max - min);
-}
 
 function makeTransform(position, scale, yaw, y = 0) {
   return {
@@ -475,8 +465,7 @@ function buildPineSapling(woodBuilder, needleBuilder, random) {
   }
 }
 
-function buildPineTree(woodBuilder, needleBuilder, random) {
-  const height = TREE_HEIGHT;
+function buildPineTree(woodBuilder, needleBuilder, random, height = TREE_HEIGHT, tint = 0) {
   const leanX = between(random, -0.35, 0.35);
   const leanZ = between(random, -0.28, 0.28);
   buildTrunk(woodBuilder, random, height, leanX, leanZ);
@@ -485,6 +474,8 @@ function buildPineTree(woodBuilder, needleBuilder, random) {
   const crownRadius = height * 0.205;
   let firstConeBranch = null;
   let secondConeBranch = null;
+  let thirdConeBranch = null;
+  let fourthConeBranch = null;
 
   for (let tier = 0; tier < tierCount; tier += 1) {
     const tierProgress = tier / (tierCount - 1);
@@ -533,7 +524,7 @@ function buildPineTree(woodBuilder, needleBuilder, random) {
           tangent,
           branchLength,
           random,
-          tier % 3,
+          (tier % 3) + tint,
         );
       }
       addNeedleFan(
@@ -543,7 +534,7 @@ function buildPineTree(woodBuilder, needleBuilder, random) {
         tangent,
         branchLength,
         random,
-        (tier + 1) % 3,
+        ((tier + 1) % 3) + tint,
       );
 
       // Two fine side shoots at each bough give the canopy a branching,
@@ -571,12 +562,14 @@ function buildPineTree(woodBuilder, needleBuilder, random) {
           forkTangent,
           forkLength,
           random,
-          (tier + sideSign + 3) % 3,
+          ((tier + sideSign + 3) % 3) + tint,
         );
       }
 
+      if (tier === 1 && branchIndex === 3) thirdConeBranch = interpolatePath(points, 0.6);
       if (tier === 2 && branchIndex === 1) firstConeBranch = interpolatePath(points, 0.57);
       if (tier === 4 && branchIndex === 4) secondConeBranch = interpolatePath(points, 0.58);
+      if (tier === 6 && branchIndex === 2) fourthConeBranch = interpolatePath(points, 0.55);
     }
   }
 
@@ -591,7 +584,7 @@ function buildPineTree(woodBuilder, needleBuilder, random) {
     const angle = (spray / 5) * Math.PI * 2 + between(random, -0.15, 0.15);
     const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
     const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
-    addNeedleFan(needleBuilder, leaderTip, radial, tangent, 0.9, random, spray % 3);
+    addNeedleFan(needleBuilder, leaderTip, radial, tangent, 0.9, random, (spray % 3) + tint);
   }
   if (firstConeBranch) {
     addPineCone(woodBuilder, firstConeBranch,
@@ -601,9 +594,17 @@ function buildPineTree(woodBuilder, needleBuilder, random) {
     addPineCone(woodBuilder, secondConeBranch,
       new THREE.Vector3(-0.16, -1, -0.07), 0.62, 0.16, random);
   }
+  if (thirdConeBranch) {
+    addPineCone(woodBuilder, thirdConeBranch,
+      new THREE.Vector3(0.14, -1, -0.12), 0.7, 0.175, random);
+  }
+  if (fourthConeBranch) {
+    addPineCone(woodBuilder, fourthConeBranch,
+      new THREE.Vector3(-0.12, -1, 0.11), 0.56, 0.145, random);
+  }
 }
 
-export function buildPineGrove(sector, config, floorHeightAt = null) {
+export function buildPineGrove(sector, config, floorHeightAt = null, windUniforms = null) {
   if (!sector || sector.id !== 'HEX_S') return null;
 
   const woodBuilder = new VertexColorGeometryBuilder('PineGrove_Wood_HEX_S');
@@ -629,7 +630,10 @@ export function buildPineGrove(sector, config, floorHeightAt = null) {
     woodBuilder.setTransform(transform);
     needleBuilder.setTransform(transform);
     if (index < CORE_TREE_PLACEMENTS.length) {
-      buildPineTree(woodBuilder, needleBuilder, random);
+      // Mature pines vary in height and needle hue so the grove never reads as
+      // one tree stamped eighteen times across the hex.
+      const height = TREE_HEIGHT * between(random, 0.86, 1.18);
+      buildPineTree(woodBuilder, needleBuilder, random, height, Math.floor(random() * 3));
     } else {
       buildPineSapling(woodBuilder, needleBuilder, random);
     }
@@ -650,6 +654,23 @@ export function buildPineGrove(sector, config, floorHeightAt = null) {
     side: THREE.DoubleSide,
     flatShading: true,
   });
+  if (windUniforms) {
+    // Trunks barely move; the crowns and the outer sprays travel with the gust.
+    applyWindSway(woodMaterial, windUniforms, {
+      strength: 0.075,
+      frequency: 0.95,
+      heightScale: 36,
+      bend: 2.6,
+    });
+    applyWindSway(needleMaterial, windUniforms, {
+      strength: 0.34,
+      frequency: 1.35,
+      heightScale: 30,
+      bend: 2,
+    });
+    group.userData.windDriven = true;
+  }
+
   const wood = new THREE.Mesh(woodBuilder.makeGeometry(), woodMaterial);
   wood.name = 'PineGrove_Wood_HEX_S';
   wood.userData.sectorId = sector.id;
@@ -668,6 +689,7 @@ export function buildPineGrove(sector, config, floorHeightAt = null) {
   group.userData.matureTreeCount = CORE_TREE_PLACEMENTS.length;
   group.userData.saplingCount = Math.max(0, placements.length - CORE_TREE_PLACEMENTS.length);
   group.userData.canopyDensity = 'dense';
+  group.userData.wind = Boolean(windUniforms);
   group.userData.forestDensity = placements.length;
   group.userData.treePlacements = placements;
   group.userData.foliageType = 'mature-pine';
