@@ -77,17 +77,56 @@ test('a double Space press toggles flight and gives an immediate takeoff lift', 
   player.dispose();
 });
 
-test('mouse movement orbits and wheel input zooms the third-person camera', () => {
+test('mouse horizontal orbit is corrected, vertical look reaches the sky, and wheel zoom still works', () => {
   const player = makePlayer();
   player.handleMouseMove({ movementX: 100, movementY: -50 });
-  assert.ok(player.yaw > 0, 'moving the mouse right increases orbit yaw');
+  assert.ok(player.yaw < 0, 'moving the mouse right turns the orbit in the corrected direction');
   assert.ok(player.pitch < PLAYER_CONFIG.initialCameraPitch, 'moving the mouse up lowers orbit pitch');
+
+  player.yaw = 0;
+  player.handleMouseMove({ movementX: -100, movementY: 0 });
+  assert.ok(player.yaw > 0, 'moving the mouse left produces the opposite yaw');
+
+  player.handleMouseMove({ movementX: 0, movementY: -2000 });
+  assert.ok(player.pitch < -1.5, 'the camera can orbit below the avatar and look almost straight up');
+  player.syncCamera();
+  assert.ok(player.camera.position.y < player.position.y + PLAYER_CONFIG.cameraTargetHeight);
 
   const startingDistance = player.cameraDistance;
   let prevented = false;
   player.handleWheel({ deltaY: 1, preventDefault: () => { prevented = true; } });
   assert.ok(player.cameraDistance > startingDistance);
   assert.equal(prevented, true);
+  player.dispose();
+});
+
+test('Shift triggers a short directional dash instead of a held sprint', () => {
+  const player = makePlayer();
+  const dashChanges = [];
+  player.onDashChange = (dashing) => dashChanges.push(dashing);
+  press(player, 'KeyW');
+  press(player, 'ShiftLeft');
+  assert.equal(player.isDashing, true);
+
+  const startZ = player.position.z;
+  player.update(0.05);
+  const burstDistance = Math.abs(player.position.z - startZ);
+  assert.ok(burstDistance > PLAYER_CONFIG.walkSpeed * 0.05 * 2);
+  assert.ok(player.position.z < startZ, 'W plus Shift dashes forward relative to the camera');
+
+  press(player, 'ShiftLeft', true);
+  while (player.dashRemaining > 0) player.update(0.05);
+  assert.equal(player.isDashing, false);
+  const afterDashZ = player.position.z;
+  player.update(0.05);
+  const regularWalkDistance = Math.abs(player.position.z - afterDashZ);
+  assert.ok(regularWalkDistance <= PLAYER_CONFIG.walkSpeed * 0.05 + 1e-6,
+    'holding Shift after the burst does not increase walking speed');
+  assert.deepEqual(dashChanges, [true, false]);
+
+  release(player, 'ShiftLeft');
+  press(player, 'ShiftLeft');
+  assert.equal(player.isDashing, false, 'the dash cannot be retriggered during its cooldown');
   player.dispose();
 });
 

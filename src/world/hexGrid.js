@@ -3,6 +3,9 @@ export const INITIAL_SECTORS = Object.freeze([
   Object.freeze({ id: 'HEX_N', q: 0, r: -1 }),
   Object.freeze({ id: 'HEX_NE', q: 1, r: -1 }),
   Object.freeze({ id: 'HEX_SE', q: 1, r: 0 }),
+  // The new eastward cap shares its northwest and southwest sides with the
+  // northeast and southeast sectors, closing the gap on the outer rim.
+  Object.freeze({ id: 'HEX_E', q: 2, r: -1 }),
   Object.freeze({ id: 'HEX_S', q: 0, r: 1 }),
   Object.freeze({ id: 'HEX_SW', q: -1, r: 1 }),
   Object.freeze({ id: 'HEX_NW', q: -1, r: 0 }),
@@ -123,7 +126,7 @@ export function buildHexMapData(radius, definitions = INITIAL_SECTORS) {
       const length = Math.hypot(end.x - start.x, end.z - start.z);
 
       if (neighbor) {
-        // Each shared side is a single open gate, never two overlapping walls.
+        // Each shared side is one portal connection, never two overlapping walls.
         if (sector.order < neighbor.order) {
           sharedEdges.push({
             id: `GATE_${sector.id}__${neighbor.id}`,

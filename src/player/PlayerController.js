@@ -20,9 +20,14 @@ export class PlayerController {
     this.keys = new Set();
     this.isLocked = false;
     this.isFlying = false;
+    this.isDashing = false;
+    this.dashRemaining = 0;
+    this.dashCooldownRemaining = 0;
+    this.dashDirection = new THREE.Vector2(0, -1);
     this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
     this.onLockChange = () => {};
     this.onFlightChange = () => {};
+    this.onDashChange = () => {};
 
     this.avatarGeometry = new THREE.SphereGeometry(1, 24, 16);
     this.avatarMaterial = new THREE.MeshStandardMaterial({
@@ -42,6 +47,24 @@ export class PlayerController {
     this.avatar.castShadow = false;
     this.avatar.receiveShadow = false;
     world.group.add(this.avatar);
+
+    this.dashEffectRemaining = 0;
+    this.dashTrailMaterial = new THREE.MeshBasicMaterial({
+      color: 0x9cf8ea,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.dashTrail = new THREE.Mesh(this.avatarGeometry, this.dashTrailMaterial);
+    this.dashTrail.name = 'PlayerDashAfterimage';
+    this.dashTrail.scale.set(
+      (config.avatarWidth ?? 0.56) * 0.9,
+      (config.height ?? 1.8) * 0.27,
+      (config.avatarDepth ?? 0.42) * 0.9,
+    );
+    this.dashTrail.visible = false;
+    world.group.add(this.dashTrail);
 
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
@@ -77,8 +100,16 @@ export class PlayerController {
     this.isLocked = false;
     this.keys.clear();
     this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+    this.stopDash();
     this.onLockChange(false);
     if (document.pointerLockElement === this.domElement) document.exitPointerLock();
+  }
+
+  stopDash() {
+    const wasDashing = this.isDashing;
+    this.isDashing = false;
+    this.dashRemaining = 0;
+    if (wasDashing) this.onDashChange(false);
   }
 
   handleKeyDown(event) {
@@ -90,6 +121,12 @@ export class PlayerController {
     if (!MOVEMENT_KEYS.has(event.code)) return;
     if (!this.isLocked) return;
     event.preventDefault();
+
+    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+      this.keys.add(event.code);
+      if (!event.repeat) this.startDash();
+      return;
+    }
 
     if (event.code === 'Space') {
       if (event.repeat || !this.isLocked) return;
@@ -115,13 +152,48 @@ export class PlayerController {
     if (MOVEMENT_KEYS.has(event.code)) this.keys.delete(event.code);
   }
 
+  getInputDirection() {
+    const forwardInput = Number(this.keys.has('KeyW')) - Number(this.keys.has('KeyS'));
+    const strafeInput = Number(this.keys.has('KeyD')) - Number(this.keys.has('KeyA'));
+    const inputLength = Math.hypot(forwardInput, strafeInput);
+    if (inputLength === 0) return { x: 0, z: 0, inputLength: 0 };
+
+    const forward = forwardInput / inputLength;
+    const strafe = strafeInput / inputLength;
+    return {
+      x: Math.cos(this.yaw) * strafe - Math.sin(this.yaw) * forward,
+      z: -Math.sin(this.yaw) * strafe - Math.cos(this.yaw) * forward,
+      inputLength,
+    };
+  }
+
+  startDash() {
+    if (!this.isLocked || this.dashRemaining > 0 || this.dashCooldownRemaining > 0) return false;
+
+    const inputDirection = this.getInputDirection();
+    if (inputDirection.inputLength > 0) {
+      this.dashDirection.set(inputDirection.x, inputDirection.z).normalize();
+    } else {
+      // A stationary dash uses the avatar's last facing direction.
+      this.dashDirection.set(-Math.sin(this.facingYaw), -Math.cos(this.facingYaw));
+    }
+
+    this.dashRemaining = this.config.dashDuration ?? 0.22;
+    this.dashCooldownRemaining = this.config.dashCooldown ?? 0.65;
+    this.dashEffectRemaining = Math.max(0.24, this.dashRemaining);
+    this.isDashing = true;
+    this.onDashChange(true);
+    return true;
+  }
+
   handleMouseMove(event) {
     if (!this.isLocked) return;
-    this.yaw += event.movementX * this.config.mouseSensitivity;
+    // Invert the horizontal orbit to match the usual mouse-look direction.
+    this.yaw -= event.movementX * this.config.mouseSensitivity;
     this.pitch = THREE.MathUtils.clamp(
       this.pitch + event.movementY * this.config.mouseSensitivity,
-      this.config.minPitch ?? 0.08,
-      this.config.maxPitch ?? 1.12,
+      this.config.minPitch ?? (-Math.PI / 2 + 0.025),
+      this.config.maxPitch ?? (Math.PI / 2 - 0.025),
     );
   }
 
@@ -141,6 +213,7 @@ export class PlayerController {
     if (!this.isLocked) {
       this.keys.clear();
       this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+      this.stopDash();
     }
     this.onLockChange(this.isLocked);
   }
@@ -149,12 +222,14 @@ export class PlayerController {
     this.isLocked = false;
     this.keys.clear();
     this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+    this.stopDash();
     this.onLockChange(false);
   }
 
   handleBlur() {
     this.keys.clear();
     this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+    this.stopDash();
   }
 
   setFlying(flying) {
@@ -172,51 +247,47 @@ export class PlayerController {
 
   update(deltaSeconds) {
     const dt = Math.min(deltaSeconds, 0.05);
+    this.dashEffectRemaining = Math.max(0, this.dashEffectRemaining - dt);
 
     if (this.isLocked) {
-      const forwardInput = Number(this.keys.has('KeyW')) - Number(this.keys.has('KeyS'));
-      const strafeInput = Number(this.keys.has('KeyD')) - Number(this.keys.has('KeyA'));
-      const inputLength = Math.hypot(forwardInput, strafeInput);
+      this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - dt);
+      const inputDirection = this.getInputDirection();
 
-      if (inputLength > 0) {
-        const sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-        const speed = sprinting ? this.config.sprintSpeed : this.config.walkSpeed;
-        const normalizedForward = forwardInput / inputLength;
-        const normalizedStrafe = strafeInput / inputLength;
-        const deltaX = (
-          Math.cos(this.yaw) * normalizedStrafe
-          - Math.sin(this.yaw) * normalizedForward
-        ) * speed * dt;
-        const deltaZ = (
-          -Math.sin(this.yaw) * normalizedStrafe
-          - Math.cos(this.yaw) * normalizedForward
-        ) * speed * dt;
-
-        const afterX = this.world.resolveHorizontalPosition(
-          this.position.x + deltaX,
-          this.position.z,
-          this.config.radius,
-          this.position.y,
-          this.config.height,
-        );
-        this.position.x = afterX.x;
-
-        const afterZ = this.world.resolveHorizontalPosition(
-          this.position.x,
-          this.position.z + deltaZ,
-          this.config.radius,
-          this.position.y,
-          this.config.height,
-        );
-        this.position.z = afterZ.z;
-
-        const targetFacingYaw = Math.atan2(-deltaX, -deltaZ);
+      if (inputDirection.inputLength > 0) {
+        const targetFacingYaw = Math.atan2(-inputDirection.x, -inputDirection.z);
         const angleDifference = Math.atan2(
           Math.sin(targetFacingYaw - this.facingYaw),
           Math.cos(targetFacingYaw - this.facingYaw),
         );
         this.facingYaw += angleDifference * (1 - Math.exp(-12 * dt));
       }
+
+      let deltaX = 0;
+      let deltaZ = 0;
+      const dashStep = Math.min(dt, this.dashRemaining);
+      if (dashStep > 0) {
+        const dashSpeed = this.config.dashSpeed ?? 42;
+        deltaX += this.dashDirection.x * dashSpeed * dashStep;
+        deltaZ += this.dashDirection.y * dashSpeed * dashStep;
+        this.dashRemaining -= dashStep;
+        if (this.dashRemaining <= 1e-5) {
+          this.dashRemaining = 0;
+          if (this.isDashing) {
+            this.isDashing = false;
+            this.onDashChange(false);
+          }
+        }
+      }
+
+      // Shift is a single burst, never a faster walk while the key is held.
+      const walkingTime = Math.max(0, dt - dashStep);
+      if (inputDirection.inputLength > 0 && walkingTime > 0) {
+        const walkSpeed = this.config.walkSpeed ?? 10;
+        deltaX += inputDirection.x * walkSpeed * walkingTime;
+        deltaZ += inputDirection.z * walkSpeed * walkingTime;
+      }
+
+      if (deltaX !== 0 || deltaZ !== 0) this.moveHorizontally(deltaX, deltaZ);
 
       if (this.isFlying) {
         const descending = this.keys.has('ControlLeft') || this.keys.has('ControlRight');
@@ -243,6 +314,26 @@ export class PlayerController {
     this.syncCamera();
   }
 
+  moveHorizontally(deltaX, deltaZ) {
+    const afterX = this.world.resolveHorizontalPosition(
+      this.position.x + deltaX,
+      this.position.z,
+      this.config.radius,
+      this.position.y,
+      this.config.height,
+    );
+    this.position.x = afterX.x;
+
+    const afterZ = this.world.resolveHorizontalPosition(
+      this.position.x,
+      this.position.z + deltaZ,
+      this.config.radius,
+      this.position.y,
+      this.config.height,
+    );
+    this.position.z = afterZ.z;
+  }
+
   syncAvatar() {
     this.avatar.position.set(
       this.position.x,
@@ -250,6 +341,22 @@ export class PlayerController {
       this.position.z,
     );
     this.avatar.rotation.y = this.facingYaw;
+    this.avatarMaterial.emissiveIntensity = this.isDashing ? 0.9 : 0.28;
+
+    if (this.dashEffectRemaining > 0) {
+      const duration = Math.max(0.24, this.config.dashDuration ?? 0.22);
+      const fade = THREE.MathUtils.clamp(this.dashEffectRemaining / duration, 0, 1);
+      this.dashTrail.visible = true;
+      this.dashTrail.position.set(
+        this.position.x - this.dashDirection.x * 0.72,
+        this.position.y + (this.config.height ?? 1.8) * 0.5,
+        this.position.z - this.dashDirection.y * 0.72,
+      );
+      this.dashTrail.rotation.y = this.facingYaw;
+      this.dashTrailMaterial.opacity = fade * 0.34;
+    } else {
+      this.dashTrail.visible = false;
+    }
   }
 
   syncCamera() {
@@ -277,7 +384,9 @@ export class PlayerController {
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
     document.removeEventListener('pointerlockerror', this.handlePointerLockError);
     this.world.group.remove(this.avatar);
+    this.world.group.remove(this.dashTrail);
     this.avatarGeometry.dispose();
     this.avatarMaterial.dispose();
+    this.dashTrailMaterial.dispose();
   }
 }
