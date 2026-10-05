@@ -5,9 +5,15 @@ import { PLAYER_CONFIG } from '../src/config/mapConfig.js';
 import { PlayerController } from '../src/player/PlayerController.js';
 
 const noop = () => {};
+const windowListeners = new Map();
 globalThis.window = {
-  addEventListener: noop,
-  removeEventListener: noop,
+  addEventListener: (type, listener) => {
+    if (!windowListeners.has(type)) windowListeners.set(type, new Set());
+    windowListeners.get(type).add(listener);
+  },
+  removeEventListener: (type, listener) => {
+    windowListeners.get(type)?.delete(listener);
+  },
 };
 globalThis.document = {
   pointerLockElement: null,
@@ -77,7 +83,7 @@ test('a double Space press toggles flight and gives an immediate takeoff lift', 
   player.dispose();
 });
 
-test('mouse horizontal orbit is corrected, vertical look reaches the sky, and wheel zoom still works', () => {
+test('mouse orbit stays above the map floor and the wheel no longer zooms', () => {
   const player = makePlayer();
   player.handleMouseMove({ movementX: 100, movementY: -50 });
   assert.ok(player.yaw < 0, 'moving the mouse right turns the orbit in the corrected direction');
@@ -88,15 +94,16 @@ test('mouse horizontal orbit is corrected, vertical look reaches the sky, and wh
   assert.ok(player.yaw > 0, 'moving the mouse left produces the opposite yaw');
 
   player.handleMouseMove({ movementX: 0, movementY: -2000 });
-  assert.ok(player.pitch < -1.5, 'the camera can orbit below the avatar and look almost straight up');
+  assert.ok(player.pitch < 0 && player.pitch > -0.1,
+    'upward orbit is limited before the camera can pass below the map');
   player.syncCamera();
-  assert.ok(player.camera.position.y < player.position.y + PLAYER_CONFIG.cameraTargetHeight);
+  assert.ok(player.camera.position.y >= PLAYER_CONFIG.cameraFloorClearance - 1e-6,
+    'the camera keeps its configured clearance above the sector floor');
 
   const startingDistance = player.cameraDistance;
-  let prevented = false;
-  player.handleWheel({ deltaY: 1, preventDefault: () => { prevented = true; } });
-  assert.ok(player.cameraDistance > startingDistance);
-  assert.equal(prevented, true);
+  assert.equal(windowListeners.get('wheel')?.size ?? 0, 0,
+    'the controller does not register a scroll-to-zoom handler');
+  assert.equal(player.cameraDistance, startingDistance, 'the follow-camera distance stays fixed');
   player.dispose();
 });
 

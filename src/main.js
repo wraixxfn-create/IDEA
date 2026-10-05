@@ -79,7 +79,7 @@ function updatePrompt() {
 
   enterButton.disabled = false;
   enterLabel.textContent = hasStarted ? 'Riprendi esplorazione' : 'Click to explore';
-  promptNote.textContent = 'Mouse orbits · Shift dashes · Scroll zooms · Esc apre il menù';
+  promptNote.textContent = 'Mouse orbits · Shift dashes · Esc apre il menù';
 }
 
 player.onLockChange = (locked) => {

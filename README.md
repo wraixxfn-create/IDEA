@@ -15,8 +15,8 @@ For a production build, run `npm run build`. The generated site is static and do
 
 - **W / A / S / D** — move relative to the follow camera
 - **Shift** — trigger a directional dash (short burst with a cooldown)
-- **Mouse** — orbit the third-person camera; horizontal mouse-look is corrected and vertical orbit reaches almost straight up or down
-- **Mouse wheel** — zoom the follow camera
+- **Mouse** — orbit the third-person camera; the lower orbit limit keeps the camera above the map floor, and flight allows a wider vertical orbit
+- The follow-camera distance is fixed (scrolling does not zoom)
 - **Double-tap Space** — toggle flight; the second press lifts off
 - **Hold Space / Ctrl** — rise / descend while flying; double-tap Space again to land
 - **F3** — toggle the top-down development overview and sector/gate annotations
