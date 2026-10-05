@@ -58,6 +58,10 @@ const camera = new THREE.PerspectiveCamera(
   3200,
 );
 const player = new PlayerController(camera, renderer.domElement, world, PLAYER_CONFIG);
+// The character shares the world's wind clock (so the cloth moves with the
+// forest) and wears the palette of whichever sector it is standing in.
+player.setWind(world.windUniforms);
+player.setRendererEnvironment(renderer, MAP_CONFIG);
 
 const overviewCamera = new THREE.OrthographicCamera(-700, 700, 700, -700, 0.1, 5000);
 overviewCamera.up.set(0, 0, -1);
@@ -166,7 +170,7 @@ resize();
 updatePrompt();
 
 const footerCoordinate = document.querySelector('.footer-coordinate');
-let currentSectorId = null;
+let currentSectorId = undefined;
 
 function updateSectorDisplay() {
   if (!footerCoordinate) return;
@@ -178,6 +182,9 @@ function updateSectorDisplay() {
       const info = getSectorInfo(sector.id, sector.order);
       footerCoordinate.textContent = `· ${info.name.toUpperCase()}`;
       footerCoordinate.style.color = `#${info.accent.toString(16).padStart(6, '0')}`;
+      // The explorer's sigils, thruster glow and cloth trim take on the
+      // accent of the sector they are standing in.
+      player.setAccent(info.accent);
     } else {
       footerCoordinate.textContent = '—';
       footerCoordinate.style.color = '';

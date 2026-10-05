@@ -47,18 +47,75 @@ function tapSpace(player) {
   release(player, 'Space');
 }
 
-test('third-person follow camera tracks a simple oval avatar from behind', () => {
+test('third-person follow camera tracks an articulated explorer from behind', () => {
   const player = makePlayer();
 
   assert.equal(player.avatar.name, 'PlayerAvatar');
-  assert.ok(player.avatar.geometry instanceof THREE.SphereGeometry);
-  assert.equal(player.avatar.position.y, PLAYER_CONFIG.height / 2);
+  // The avatar is a real character rig now, not a single primitive.
+  assert.equal(player.avatar.userData.kind, 'character-rig');
+  let meshCount = 0;
+  const partNames = [];
+  player.avatar.traverse((object) => {
+    if (!object.isMesh) return;
+    meshCount += 1;
+    partNames.push(object.name);
+  });
+  assert.ok(meshCount > 12, `the explorer is built from real parts (found ${meshCount})`);
+  for (const expected of ['HeadMesh_plate', 'TorsoMesh_plate', 'ThighMesh_L_plate']) {
+    assert.ok(partNames.includes(expected), `the rig includes ${expected}`);
+  }
+
+  // It stands on the ground with its head at the configured height.
+  const bounds = new THREE.Box3().setFromObject(player.avatar);
+  assert.ok(bounds.min.y > -0.05 && bounds.min.y < 0.05, 'the feet rest on the floor');
+  assert.ok(bounds.max.y > PLAYER_CONFIG.height * 0.92, 'the figure reaches its full height');
+
   assert.ok(player.camera.position.z > player.position.z);
-  assert.ok(player.camera.position.y > player.avatar.position.y);
+  assert.ok(player.camera.position.y > 1.2);
 
   const lookDirection = new THREE.Vector3();
   player.camera.getWorldDirection(lookDirection);
   assert.ok(lookDirection.z < 0, 'the camera looks from behind toward the character');
+  player.dispose();
+});
+
+test('the rig animates through walk, flight and dash states', () => {
+  const player = makePlayer();
+  const rig = player.characterRig;
+  const legSamples = new Set();
+
+  // Walking: the legs swing and the gait phase advances.
+  press(player, 'KeyW');
+  for (let step = 0; step < 40; step += 1) {
+    player.update(1 / 60);
+    legSamples.add(rig.leg.L.rotation.x.toFixed(4));
+  }
+  assert.ok(legSamples.size > 10, 'the legs keep swinging while walking');
+  assert.ok(player.horizontalSpeed >= 0);
+
+  // Hovering: the flight blend rises and the legs tuck up under the body.
+  release(player, 'KeyW');
+  player.setFlying(true);
+  for (let step = 0; step < 90; step += 1) player.update(1 / 60);
+  assert.ok(rig.blends.fly > 0.9, 'the flight pose takes over while flying');
+  assert.ok(rig.leg.L.rotation.x > 0.1, 'the legs tuck forward in flight');
+
+  // Dashing: the blend spikes and the afterimages come alive.
+  player.setFlying(false);
+  player.update(1 / 60);
+  press(player, 'KeyW');
+  press(player, 'ShiftLeft');
+  player.update(1 / 60);
+  assert.ok(rig.blends.dash > 0.2, 'the dash pose engages');
+  player.dispose();
+});
+
+test('entering a sector retints the character accents', () => {
+  const player = makePlayer();
+  const before = player.characterRig.materials.accent.emissive.getHex();
+  player.setAccent(0xf87171);
+  assert.equal(player.characterRig.materials.accent.emissive.getHex(), 0xf87171);
+  assert.notEqual(before, 0xf87171);
   player.dispose();
 });
 
