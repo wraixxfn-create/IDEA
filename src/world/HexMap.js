@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildHexMapData, getHexVertices, isPointInsideHex } from './hexGrid.js';
+import { getSectorColor, getSectorInfo } from '../config/mapConfig.js';
 
 function createFloorGeometry(radius) {
   const vertices = getHexVertices(0, 0, radius);
@@ -20,23 +21,62 @@ function createFloorGeometry(radius) {
   return geometry;
 }
 
-function makeCanvasLabel(text) {
+function createHexRingGeometry(innerRadius, outerRadius) {
+  const innerVerts = getHexVertices(0, 0, innerRadius);
+  const outerVerts = getHexVertices(0, 0, outerRadius);
+  const positions = [];
+  const indices = [];
+  for (let i = 0; i < 6; i += 1) {
+    positions.push(innerVerts[i].x, 0, innerVerts[i].z);
+    positions.push(outerVerts[i].x, 0, outerVerts[i].z);
+  }
+  for (let i = 0; i < 6; i += 1) {
+    const next = (i + 1) % 6;
+    const i0 = i * 2;
+    const o0 = i * 2 + 1;
+    const i1 = next * 2;
+    const o1 = next * 2 + 1;
+    indices.push(i0, o0, i1);
+    indices.push(i1, o0, o1);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function makeCanvasLabel(text, colorHex = '#e9f2ee', subtitle = '') {
   const canvas = document.createElement('canvas');
   canvas.width = 768;
-  canvas.height = 192;
+  canvas.height = 210;
   const context = canvas.getContext('2d');
-  context.fillStyle = 'rgba(18, 26, 28, 0.92)';
+  context.fillStyle = 'rgba(18, 24, 26, 0.94)';
   context.beginPath();
-  context.roundRect(4, 4, canvas.width - 8, canvas.height - 8, 18);
+  context.roundRect(6, 6, canvas.width - 12, canvas.height - 12, 18);
   context.fill();
-  context.strokeStyle = 'rgba(222, 238, 233, 0.65)';
-  context.lineWidth = 4;
+
+  context.strokeStyle = colorHex;
+  context.lineWidth = 6;
   context.stroke();
-  context.fillStyle = '#e9f2ee';
-  context.font = '600 66px ui-monospace, SFMono-Regular, Consolas, monospace';
+
+  if (typeof context.fillRect === 'function') {
+    context.fillStyle = colorHex;
+    context.fillRect(24, 18, canvas.width - 48, 4);
+  }
+
+  context.fillStyle = '#ffffff';
+  context.font = '700 62px ui-monospace, SFMono-Regular, Consolas, monospace';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+  context.fillText(text, canvas.width / 2, canvas.height / 2 - (subtitle ? 16 : 0));
+
+  if (subtitle) {
+    context.fillStyle = colorHex;
+    context.font = '600 36px ui-sans-serif, system-ui, sans-serif';
+    context.fillText(subtitle.toUpperCase(), canvas.width / 2, canvas.height / 2 + 52);
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -47,7 +87,7 @@ function makeCanvasLabel(text) {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(102, 25.5, 1);
+  sprite.scale.set(108, 29.5, 1);
   sprite.renderOrder = 1001;
   return sprite;
 }
@@ -80,24 +120,63 @@ export class HexMap {
     scene.add(this.group);
 
     this.floorGeometry = createFloorGeometry(config.hexRadius);
+    this.floorRingGeometry = createHexRingGeometry(config.hexRadius * 0.88, config.hexRadius * 0.905);
+    this.floorCenterGeometry = createFloorGeometry(28);
+
     this.floorMaterial = new THREE.MeshStandardMaterial({
-      color: config.floorColor,
-      roughness: 0.96,
-      metalness: 0,
+      color: config.floorColor ?? 0xd99b26,
+      roughness: 0.82,
+      metalness: 0.06,
     });
+    this.floorRingMaterial = new THREE.MeshStandardMaterial({
+      color: 0x182024,
+      roughness: 0.5,
+      metalness: 0.45,
+    });
+    this.floorCenterMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1f272a,
+      roughness: 0.6,
+      metalness: 0.4,
+    });
+
     this.wallMaterial = new THREE.MeshStandardMaterial({
-      color: config.wallColor,
-      roughness: 0.92,
-      metalness: 0,
+      color: config.wallColor ?? 0x545d61,
+      roughness: 0.90,
+      metalness: 0.05,
     });
     this.gateFrameMaterial = new THREE.MeshStandardMaterial({
-      color: config.gateFrameColor,
-      roughness: 0.86,
-      metalness: 0,
+      color: config.gateFrameColor ?? 0x22272a,
+      roughness: 0.35,
+      metalness: 0.72,
     });
+    this.gateTrimMaterial = new THREE.MeshStandardMaterial({
+      color: config.gateTrimColor ?? 0x161a1c,
+      roughness: 0.38,
+      metalness: 0.78,
+    });
+    this.gateGlowMaterial = new THREE.MeshStandardMaterial({
+      color: config.gateGlowColor ?? 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 1.4,
+      roughness: 0.2,
+      metalness: 0.1,
+    });
+    this.thresholdMaterial = new THREE.MeshStandardMaterial({
+      color: 0x161c1e,
+      roughness: 0.35,
+      metalness: 0.82,
+    });
+    this.transomPanelMaterial = new THREE.MeshStandardMaterial({
+      color: 0x3d4649,
+      roughness: 0.75,
+      metalness: 0.18,
+    });
+
     this.boxGeometry = new THREE.BoxGeometry(1, 1, 1);
     this.collisionBoxes = [];
     this.sectorMeshes = new Map();
+    this.floorMaterials = new Map();
+
     this.debugGroup = new THREE.Group();
     this.debugGroup.name = 'HexMapDebug';
     this.debugGroup.visible = false;
@@ -110,13 +189,35 @@ export class HexMap {
 
   buildFloors() {
     for (const sector of this.sectors) {
-      const floor = new THREE.Mesh(this.floorGeometry, this.floorMaterial);
+      const color = this.config.sectorColors?.[sector.id]
+        ?? getSectorColor(sector.id, sector.order);
+
+      const sectorFloorMaterial = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.80,
+        metalness: 0.06,
+      });
+      this.floorMaterials.set(sector.id, sectorFloorMaterial);
+
+      const floor = new THREE.Mesh(this.floorGeometry, sectorFloorMaterial);
       floor.name = `Floor_${sector.id}`;
       floor.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
       floor.receiveShadow = false;
       floor.userData.sectorId = sector.id;
       this.group.add(floor);
       this.sectorMeshes.set(sector.id, floor);
+
+      // Elegant inner hex border ring on each floor
+      const ring = new THREE.Mesh(this.floorRingGeometry, this.floorRingMaterial);
+      ring.name = `FloorRing_${sector.id}`;
+      ring.position.set(sector.center.x, this.config.floorHeight + 0.02, sector.center.z);
+      this.group.add(ring);
+
+      // Central dais / medallion in each hexagon
+      const centerDais = new THREE.Mesh(this.floorCenterGeometry, this.floorCenterMaterial);
+      centerDais.name = `FloorCenter_${sector.id}`;
+      centerDais.position.set(sector.center.x, this.config.floorHeight + 0.03, sector.center.z);
+      this.group.add(centerDais);
     }
   }
 
@@ -153,8 +254,16 @@ export class HexMap {
   buildWallsAndGates() {
     const wallRecords = [];
     const frameRecords = [];
+    const thresholdRecords = [];
+    const thresholdGlowRecords = [];
+    const plinthRecords = [];
+    const capitalRecords = [];
+    const jambGlowRecords = [];
+    const transomBeamRecords = [];
+    const transomGlowRecords = [];
+    const transomPanelRecords = [];
+
     const { wallHeight, wallThickness, floorHeight, gateWidth, gateFrameWidth, cornerOverlap } = this.config;
-    // A regular hexagon's side length equals its center-to-vertex radius.
     const edgeLength = this.config.hexRadius;
 
     if (gateWidth + 2 * gateFrameWidth >= edgeLength) {
@@ -163,6 +272,7 @@ export class HexMap {
 
     const wallY = floorHeight + wallHeight / 2;
 
+    // Outer boundary walls
     for (const edge of this.boundaryEdges) {
       this.addBoxRecord(
         wallRecords,
@@ -175,6 +285,11 @@ export class HexMap {
       );
     }
 
+    // Shared edges / Gates:
+    // Narrower opening with bold, sculptural architectural framing
+    const postDepth = wallThickness + 2.2;
+    const postOffset = gateWidth / 2 + gateFrameWidth / 2;
+
     for (const edge of this.gates) {
       const shoulder = gateWidth / 2 + gateFrameWidth;
       const panelSpan = edgeLength / 2 - shoulder;
@@ -182,11 +297,11 @@ export class HexMap {
       const panelLength = panelSpan + outerExtension;
       const panelOffset = shoulder + panelSpan / 2 + outerExtension / 2;
 
+      // Wall panels flanking the door opening
       this.addBoxRecord(wallRecords, edge, -panelOffset, panelLength, wallHeight, wallThickness, wallY);
       this.addBoxRecord(wallRecords, edge, panelOffset, panelLength, wallHeight, wallThickness, wallY);
 
-      const postDepth = wallThickness + 0.5;
-      const postOffset = gateWidth / 2 + gateFrameWidth / 2;
+      // Core structural gate frame posts (left & right) + top lintel (part of the 36 records)
       this.addBoxRecord(
         frameRecords,
         edge,
@@ -215,8 +330,138 @@ export class HexMap {
         floorHeight + wallHeight - gateFrameWidth / 2,
         { collidable: false },
       );
+
+      // --- Decorative Architectural Gate Details (collidable: false) ---
+      // 1. Threshold plate across the floor between the sectors
+      this.addBoxRecord(
+        thresholdRecords,
+        edge,
+        0,
+        gateWidth + 0.6,
+        0.16,
+        wallThickness + 2.6,
+        floorHeight + 0.08,
+        { collidable: false },
+      );
+
+      // 2. Threshold luminous guide runner
+      this.addBoxRecord(
+        thresholdGlowRecords,
+        edge,
+        0,
+        gateWidth - 1.2,
+        0.22,
+        0.4,
+        floorHeight + 0.11,
+        { collidable: false },
+      );
+
+      // 3. Post Plinths (Bases)
+      this.addBoxRecord(
+        plinthRecords,
+        edge,
+        -postOffset,
+        gateFrameWidth + 1.4,
+        2.8,
+        postDepth + 1.2,
+        floorHeight + 1.4,
+        { collidable: false },
+      );
+      this.addBoxRecord(
+        plinthRecords,
+        edge,
+        postOffset,
+        gateFrameWidth + 1.4,
+        2.8,
+        postDepth + 1.2,
+        floorHeight + 1.4,
+        { collidable: false },
+      );
+
+      // 4. Post Capitals (Crowns)
+      this.addBoxRecord(
+        capitalRecords,
+        edge,
+        -postOffset,
+        gateFrameWidth + 1.4,
+        1.8,
+        postDepth + 1.2,
+        floorHeight + wallHeight - 1.0,
+        { collidable: false },
+      );
+      this.addBoxRecord(
+        capitalRecords,
+        edge,
+        postOffset,
+        gateFrameWidth + 1.4,
+        1.8,
+        postDepth + 1.2,
+        floorHeight + wallHeight - 1.0,
+        { collidable: false },
+      );
+
+      // 5. Vertical illuminated jamb neon strips
+      const jambOffset = gateWidth / 2 - 0.2;
+      const jambHeight = wallHeight - 4.5;
+      this.addBoxRecord(
+        jambGlowRecords,
+        edge,
+        -jambOffset,
+        0.4,
+        jambHeight,
+        postDepth * 0.7,
+        floorHeight + jambHeight / 2 + 1.5,
+        { collidable: false },
+      );
+      this.addBoxRecord(
+        jambGlowRecords,
+        edge,
+        jambOffset,
+        0.4,
+        jambHeight,
+        postDepth * 0.7,
+        floorHeight + jambHeight / 2 + 1.5,
+        { collidable: false },
+      );
+
+      // 6. Mid-height transom architrave beam (height 19)
+      this.addBoxRecord(
+        transomBeamRecords,
+        edge,
+        0,
+        gateWidth + 2 * gateFrameWidth,
+        2.0,
+        postDepth + 0.8,
+        floorHeight + 19,
+        { collidable: false },
+      );
+
+      // 7. Luminous under-glow strip on the transom beam
+      this.addBoxRecord(
+        transomGlowRecords,
+        edge,
+        0,
+        gateWidth,
+        0.32,
+        1.2,
+        floorHeight + 17.85,
+        { collidable: false },
+      );
+
+      // 8. Upper architectural infill panel above transom beam
+      this.addBoxRecord(
+        transomPanelRecords,
+        edge,
+        0,
+        gateWidth + 0.4,
+        8.5,
+        wallThickness,
+        floorHeight + 24.5,
+        { collidable: false },
+      );
     }
 
+    // Required core instanced meshes
     this.wallInstancedMesh = this.createInstancedBoxes(
       wallRecords,
       this.wallMaterial,
@@ -229,6 +474,48 @@ export class HexMap {
     );
     this.wallRecordCount = wallRecords.length;
     this.frameRecordCount = frameRecords.length;
+
+    // Architectural decorative gate enhancements
+    this.portalThresholds = this.createInstancedBoxes(
+      thresholdRecords,
+      this.thresholdMaterial,
+      'PortalThresholds',
+    );
+    this.portalThresholdGlow = this.createInstancedBoxes(
+      thresholdGlowRecords,
+      this.gateGlowMaterial,
+      'PortalThresholdGlow',
+    );
+    this.portalPlinths = this.createInstancedBoxes(
+      plinthRecords,
+      this.gateTrimMaterial,
+      'PortalPlinths',
+    );
+    this.portalCapitals = this.createInstancedBoxes(
+      capitalRecords,
+      this.gateTrimMaterial,
+      'PortalCapitals',
+    );
+    this.portalJambGlow = this.createInstancedBoxes(
+      jambGlowRecords,
+      this.gateGlowMaterial,
+      'PortalJambGlow',
+    );
+    this.portalTransomBeams = this.createInstancedBoxes(
+      transomBeamRecords,
+      this.gateTrimMaterial,
+      'PortalTransomBeams',
+    );
+    this.portalTransomGlow = this.createInstancedBoxes(
+      transomGlowRecords,
+      this.gateGlowMaterial,
+      'PortalTransomGlow',
+    );
+    this.portalTransomPanels = this.createInstancedBoxes(
+      transomPanelRecords,
+      this.transomPanelMaterial,
+      'PortalTransomPanels',
+    );
   }
 
   createInstancedBoxes(records, material, name) {
@@ -265,7 +552,9 @@ export class HexMap {
         );
       }
 
-      const label = makeCanvasLabel(sector.id);
+      const info = getSectorInfo(sector.id, sector.order);
+      const colorHex = `#${info.color.toString(16).padStart(6, '0')}`;
+      const label = makeCanvasLabel(sector.id, colorHex, info.name);
       label.position.set(
         sector.center.x,
         this.config.floorHeight + this.config.wallHeight + 14,
@@ -347,6 +636,19 @@ export class HexMap {
 
   getSector(id) {
     return this.sectorById.get(id) ?? null;
+  }
+
+  getSectorAt(x, z) {
+    for (const sector of this.sectors) {
+      if (isPointInsideHex(
+        x,
+        z,
+        sector.center.x,
+        sector.center.z,
+        this.config.hexRadius,
+      )) return sector;
+    }
+    return null;
   }
 
   getFloorHeightAt(x, z) {
