@@ -9,6 +9,7 @@ const enterButton = document.querySelector('#enter-world');
 const enterLabel = document.querySelector('#enter-label');
 const promptNote = document.querySelector('#prompt-note');
 const experiencePrompt = document.querySelector('#experience-prompt');
+const overviewButton = document.querySelector('#menu-overview');
 const debugState = document.querySelector('#debug-state');
 const flightState = document.querySelector('#flight-state');
 
@@ -52,7 +53,18 @@ let hasStarted = false;
 function updatePrompt() {
   const locked = player.isLocked;
   const shouldShow = !debugMode && !locked;
+  const paused = hasStarted && shouldShow;
   experiencePrompt.classList.toggle('is-hidden', !shouldShow);
+  experiencePrompt.classList.toggle('is-paused', paused);
+  experiencePrompt.setAttribute('aria-hidden', String(!shouldShow));
+  experiencePrompt.setAttribute('role', paused ? 'dialog' : 'status');
+  if (paused) {
+    experiencePrompt.setAttribute('aria-modal', 'true');
+    experiencePrompt.setAttribute('aria-labelledby', 'pause-title');
+  } else {
+    experiencePrompt.removeAttribute('aria-modal');
+    experiencePrompt.removeAttribute('aria-labelledby');
+  }
   debugState.classList.toggle('is-visible', debugMode);
   const showFlightState = player.isFlying && player.isLocked && !debugMode;
   flightState.classList.toggle('is-visible', showFlightState);
@@ -66,13 +78,14 @@ function updatePrompt() {
   }
 
   enterButton.disabled = false;
-  enterLabel.textContent = hasStarted ? 'Click to resume' : 'Click to explore';
-  promptNote.textContent = 'Mouse orbits · Scroll zooms · Esc releases pointer';
+  enterLabel.textContent = hasStarted ? 'Riprendi esplorazione' : 'Click to explore';
+  promptNote.textContent = 'Mouse orbits · Scroll zooms · Esc apre il menù';
 }
 
 player.onLockChange = (locked) => {
   if (locked) hasStarted = true;
   updatePrompt();
+  if (!locked && !debugMode && hasStarted) enterButton.focus({ preventScroll: true });
 };
 player.onFlightChange = () => updatePrompt();
 
@@ -80,13 +93,27 @@ enterButton.addEventListener('click', () => {
   if (!debugMode) player.requestPointerLock();
 });
 
+function setDebugMode(enabled) {
+  debugMode = enabled;
+  world.setDebugVisible(debugMode);
+  if (debugMode) player.releasePointerLock();
+  updatePrompt();
+}
+
+overviewButton.addEventListener('click', () => setDebugMode(true));
+
 window.addEventListener('keydown', (event) => {
+  if (event.code === 'Escape') {
+    // Browsers may handle Esc themselves; pointerlockchange also opens the
+    // menu. Explicit handling covers debug view and already-unlocked states.
+    if (debugMode) setDebugMode(false);
+    updatePrompt();
+    if (hasStarted) enterButton.focus({ preventScroll: true });
+    return;
+  }
   if (event.code !== 'F3' || event.repeat) return;
   event.preventDefault();
-  debugMode = !debugMode;
-  world.setDebugVisible(debugMode);
-  if (debugMode && document.pointerLockElement) document.exitPointerLock();
-  updatePrompt();
+  setDebugMode(!debugMode);
 });
 
 function updateOverviewFrustum() {
@@ -146,7 +173,6 @@ function animate() {
     player.update(delta);
     updateSectorDisplay();
   }
-  world.update(clock.elapsedTime);
   world.updateDebugPlayer(player.position);
   renderer.render(scene, debugMode ? overviewCamera : camera);
 }

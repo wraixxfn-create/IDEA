@@ -272,3 +272,50 @@ button { font: inherit; }
   .readout-item { width: 100%; justify-content: space-between; }
   .control-strip { top: 108px; }
 }
+
+/* Esc opens a full pause layer, rather than leaving a frozen viewport. */
+.pause-only { display: none; }
+.experience-prompt.is-paused {
+  inset: 0;
+  width: 100%;
+  transform: none;
+  align-content: center;
+  padding: 24px;
+  background: rgba(10, 16, 18, 0.8);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  gap: 16px;
+}
+.is-paused .pause-only { display: block; }
+.is-paused #pause-eyebrow {
+  color: #a8c7bc;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+}
+.is-paused h2 {
+  margin: 0;
+  font-size: clamp(24px, 5vw, 36px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  text-align: center;
+}
+.is-paused .pause-description { margin-bottom: 16px; }
+.is-paused .enter-button, .menu-secondary { width: min(320px, 100%); }
+.menu-secondary {
+  min-height: 46px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  font: 10px var(--mono);
+  cursor: pointer;
+  text-align: left;
+}
+.menu-secondary span { float: right; }
+.menu-secondary:hover { background: rgba(233, 239, 238, 0.08); }
+.enter-button:focus-visible, .menu-secondary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.is-paused #prompt-note { text-align: center; line-height: 1.7; }

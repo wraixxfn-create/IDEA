@@ -106,73 +106,6 @@ function axisForEdge(edge) {
   };
 }
 
-function createPortalBezelGeometry(gateWidth, frameWidth, wallHeight) {
-  const outerHalf = gateWidth / 2 + frameWidth + 1.4;
-  const innerHalf = gateWidth / 2 + 0.42;
-  const crownHeight = wallHeight + 1.15;
-  const innerTop = wallHeight - 2.1;
-  const outerChamfer = 3.2;
-  const innerChamfer = 1.6;
-  const shape = new THREE.Shape();
-
-  // A single clipped-corner, U-shaped surround creates a solid architectural
-  // bezel around the existing structural posts without closing the passage.
-  shape.moveTo(-outerHalf, 0);
-  shape.lineTo(-outerHalf, crownHeight - outerChamfer);
-  shape.lineTo(-outerHalf + outerChamfer, crownHeight);
-  shape.lineTo(outerHalf - outerChamfer, crownHeight);
-  shape.lineTo(outerHalf, crownHeight - outerChamfer);
-  shape.lineTo(outerHalf, 0);
-  shape.lineTo(innerHalf, 0);
-  shape.lineTo(innerHalf, innerTop - innerChamfer);
-  shape.lineTo(innerHalf - innerChamfer, innerTop);
-  shape.lineTo(-innerHalf + innerChamfer, innerTop);
-  shape.lineTo(-innerHalf, innerTop - innerChamfer);
-  shape.lineTo(-innerHalf, 0);
-  shape.closePath();
-
-  const depth = 0.9;
-  const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth,
-    bevelEnabled: true,
-    bevelSegments: 2,
-    steps: 1,
-    bevelSize: 0.16,
-    bevelThickness: 0.14,
-    curveSegments: 2,
-  });
-  geometry.translate(0, 0, -depth / 2);
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-function createPortalLightGeometry(gateWidth, openingHeight) {
-  const halfWidth = gateWidth / 2 - 0.85;
-  const cornerCut = 1.8;
-  const points = [
-    new THREE.Vector3(-halfWidth, 0.55, 0),
-    new THREE.Vector3(-halfWidth, openingHeight - cornerCut, 0),
-    new THREE.Vector3(-halfWidth + cornerCut, openingHeight - 0.35, 0),
-    new THREE.Vector3(halfWidth - cornerCut, openingHeight - 0.35, 0),
-    new THREE.Vector3(halfWidth, openingHeight - cornerCut, 0),
-    new THREE.Vector3(halfWidth, 0.55, 0),
-  ];
-  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-  const geometry = new THREE.TubeGeometry(curve, 72, 0.19, 7, false);
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-function createPortalCrestGeometry() {
-  const geometry = new THREE.CylinderGeometry(1.7, 1.7, 0.62, 6, 1);
-  geometry.rotateX(Math.PI / 2);
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
 export class HexMap {
   constructor(scene, config) {
     this.config = config;
@@ -188,7 +121,6 @@ export class HexMap {
 
     this.floorGeometry = createFloorGeometry(config.hexRadius);
     this.floorRingGeometry = createHexRingGeometry(config.hexRadius * 0.88, config.hexRadius * 0.905);
-    this.floorCenterGeometry = createFloorGeometry(28);
 
     this.floorMaterial = new THREE.MeshStandardMaterial({
       color: config.floorColor ?? 0xd99b26,
@@ -200,12 +132,6 @@ export class HexMap {
       roughness: 0.5,
       metalness: 0.45,
     });
-    this.floorCenterMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1f272a,
-      roughness: 0.6,
-      metalness: 0.4,
-    });
-
     this.wallMaterial = new THREE.MeshStandardMaterial({
       color: config.wallColor ?? 0x545d61,
       roughness: 0.90,
@@ -216,49 +142,12 @@ export class HexMap {
       roughness: 0.35,
       metalness: 0.72,
     });
-    this.gateTrimMaterial = new THREE.MeshStandardMaterial({
-      color: config.gateTrimColor ?? 0x161a1c,
-      roughness: 0.38,
-      metalness: 0.78,
-    });
-    this.gateGlowMaterial = new THREE.MeshStandardMaterial({
-      color: config.gateGlowColor ?? 0x38bdf8,
-      emissive: 0x0284c7,
-      emissiveIntensity: 1.4,
-      roughness: 0.2,
-      metalness: 0.1,
-    });
-    this.thresholdMaterial = new THREE.MeshStandardMaterial({
-      color: 0x161c1e,
-      roughness: 0.35,
-      metalness: 0.82,
-    });
-    this.transomPanelMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3d4649,
-      roughness: 0.75,
-      metalness: 0.18,
-    });
     this.portalLightMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       toneMapped: false,
     });
-    this.portalCrestMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.3,
-      metalness: 0.76,
-    });
 
     this.boxGeometry = new THREE.BoxGeometry(1, 1, 1);
-    this.portalBezelGeometry = createPortalBezelGeometry(
-      config.gateWidth,
-      config.gateFrameWidth,
-      config.wallHeight,
-    );
-    this.portalLightGeometry = createPortalLightGeometry(
-      config.gateWidth,
-      config.gateOpeningHeight ?? config.wallHeight * 0.7,
-    );
-    this.portalCrestGeometry = createPortalCrestGeometry();
     this.collisionBoxes = [];
     this.sectorMeshes = new Map();
     this.floorMaterials = new Map();
@@ -299,11 +188,7 @@ export class HexMap {
       ring.position.set(sector.center.x, this.config.floorHeight + 0.02, sector.center.z);
       this.group.add(ring);
 
-      // Central dais / medallion in each hexagon
-      const centerDais = new THREE.Mesh(this.floorCenterGeometry, this.floorCenterMaterial);
-      centerDais.name = `FloorCenter_${sector.id}`;
-      centerDais.position.set(sector.center.x, this.config.floorHeight + 0.03, sector.center.z);
-      this.group.add(centerDais);
+
     }
   }
 
@@ -342,22 +227,11 @@ export class HexMap {
   buildWallsAndGates() {
     const wallRecords = [];
     const frameRecords = [];
-    const thresholdRecords = [];
-    const thresholdGlowRecords = [];
-    const plinthRecords = [];
-    const capitalRecords = [];
-    const jambGlowRecords = [];
-    const transomBeamRecords = [];
-    const transomGlowRecords = [];
-    const transomPanelRecords = [];
-    const portalBezelRecords = [];
-    const portalLightRecords = [];
-    const portalCrestRecords = [];
-
+    const lightRecords = [];
     const { wallHeight, wallThickness, floorHeight, gateWidth, gateFrameWidth, cornerOverlap } = this.config;
     const openingHeight = Math.min(
       this.config.gateOpeningHeight ?? wallHeight * 0.7,
-      wallHeight - gateFrameWidth * 1.5,
+      wallHeight - gateFrameWidth,
     );
     const edgeLength = this.config.hexRadius;
 
@@ -366,333 +240,77 @@ export class HexMap {
     }
 
     const wallY = floorHeight + wallHeight / 2;
-
-    // Outer boundary walls
     for (const edge of this.boundaryEdges) {
-      this.addBoxRecord(
-        wallRecords,
-        edge,
-        0,
-        edgeLength + cornerOverlap,
-        wallHeight,
-        wallThickness,
-        wallY,
-      );
+      this.addBoxRecord(wallRecords, edge, 0, edgeLength + cornerOverlap,
+        wallHeight, wallThickness, wallY);
     }
-
-    // Shared edges / Gates:
-    // Layered, sector-colored portal hardware sits on both faces of each opening.
-    const postDepth = wallThickness + 2.2;
-    const postOffset = gateWidth / 2 + gateFrameWidth / 2;
 
     for (const edge of this.gates) {
       const { axisX, axisZ, yaw } = axisForEdge(edge);
-      const normalX = -axisZ;
-      const normalZ = axisX;
-      const sectorA = this.sectorById.get(edge.aSectorId);
-      const sectorB = this.sectorById.get(edge.bSectorId);
-      const aSide = Math.sign(
-        (sectorA.center.x - edge.center.x) * normalX
-        + (sectorA.center.z - edge.center.z) * normalZ,
-      ) || 1;
-      const portalFaceOffset = postDepth / 2 + 0.38;
-
-      for (const [side, sector] of [[aSide, sectorA], [-aSide, sectorB]]) {
-        const accent = getSectorInfo(sector.id, sector.order).accent;
-        const faceX = edge.center.x + normalX * side * portalFaceOffset;
-        const faceZ = edge.center.z + normalZ * side * portalFaceOffset;
-        portalBezelRecords.push({
-          x: faceX,
-          y: floorHeight,
-          z: faceZ,
-          yaw,
-        });
-        portalLightRecords.push({
-          x: faceX + normalX * side * 0.62,
-          y: floorHeight,
-          z: faceZ + normalZ * side * 0.62,
-          yaw,
-          color: accent,
-        });
-        portalCrestRecords.push({
-          x: faceX + normalX * side * 0.62,
-          y: floorHeight + wallHeight + 1.6,
-          z: faceZ + normalZ * side * 0.62,
-          yaw,
-          color: accent,
-        });
-      }
-
       const shoulder = gateWidth / 2 + gateFrameWidth;
       const panelSpan = edgeLength / 2 - shoulder;
-      const outerExtension = Math.min(cornerOverlap, panelSpan / 4);
-      const panelLength = panelSpan + outerExtension;
-      const panelOffset = shoulder + panelSpan / 2 + outerExtension / 2;
+      const extension = Math.min(cornerOverlap, panelSpan / 4);
+      const panelLength = panelSpan + extension;
+      const panelOffset = shoulder + panelSpan / 2 + extension / 2;
+      const frameDepth = wallThickness + 0.6;
+      const frameHeight = openingHeight + gateFrameWidth;
+      const postOffset = gateWidth / 2 + gateFrameWidth / 2;
 
-      // Wall panels flanking the door opening
-      this.addBoxRecord(wallRecords, edge, -panelOffset, panelLength, wallHeight, wallThickness, wallY);
-      this.addBoxRecord(wallRecords, edge, panelOffset, panelLength, wallHeight, wallThickness, wallY);
+      for (const side of [-1, 1]) {
+        this.addBoxRecord(wallRecords, edge, side * panelOffset, panelLength,
+          wallHeight, wallThickness, wallY);
+        this.addBoxRecord(frameRecords, edge, side * postOffset, gateFrameWidth,
+          frameHeight, frameDepth, floorHeight + frameHeight / 2);
+      }
+      // A solid header fills the tall wall above the actual door. Its collision
+      // matches the visible geometry, including when the player is flying.
+      const headerHeight = wallHeight - frameHeight;
+      if (headerHeight > 0) {
+        this.addBoxRecord(wallRecords, edge, 0, gateWidth + 2 * gateFrameWidth,
+          headerHeight, wallThickness, floorHeight + frameHeight + headerHeight / 2);
+      }
+      this.addBoxRecord(frameRecords, edge, 0, gateWidth, gateFrameWidth,
+        frameDepth, floorHeight + openingHeight + gateFrameWidth / 2);
 
-      // Core structural gate frame posts (left & right) + top lintel (part of the 36 records)
-      this.addBoxRecord(
-        frameRecords,
-        edge,
-        -postOffset,
-        gateFrameWidth,
-        wallHeight,
-        postDepth,
-        wallY,
-      );
-      this.addBoxRecord(
-        frameRecords,
-        edge,
-        postOffset,
-        gateFrameWidth,
-        wallHeight,
-        postDepth,
-        wallY,
-      );
-      this.addBoxRecord(
-        frameRecords,
-        edge,
-        0,
-        gateWidth + 2 * gateFrameWidth,
-        gateFrameWidth,
-        postDepth,
-        floorHeight + wallHeight - gateFrameWidth / 2,
-        { collidable: false },
-      );
-
-      // --- Decorative Architectural Gate Details (collidable: false) ---
-      // 1. Threshold plate across the floor between the sectors
-      this.addBoxRecord(
-        thresholdRecords,
-        edge,
-        0,
-        gateWidth + 0.6,
-        0.16,
-        wallThickness + 2.6,
-        floorHeight + 0.08,
-        { collidable: false },
-      );
-
-      // 2. Threshold luminous guide runner
-      this.addBoxRecord(
-        thresholdGlowRecords,
-        edge,
-        0,
-        gateWidth - 1.2,
-        0.22,
-        0.4,
-        floorHeight + 0.11,
-        { collidable: false },
-      );
-
-      // 3. Post Plinths (Bases)
-      this.addBoxRecord(
-        plinthRecords,
-        edge,
-        -postOffset,
-        gateFrameWidth + 1.4,
-        2.8,
-        postDepth + 1.2,
-        floorHeight + 1.4,
-        { collidable: false },
-      );
-      this.addBoxRecord(
-        plinthRecords,
-        edge,
-        postOffset,
-        gateFrameWidth + 1.4,
-        2.8,
-        postDepth + 1.2,
-        floorHeight + 1.4,
-        { collidable: false },
-      );
-
-      // 4. Post Capitals (Crowns)
-      this.addBoxRecord(
-        capitalRecords,
-        edge,
-        -postOffset,
-        gateFrameWidth + 1.4,
-        1.8,
-        postDepth + 1.2,
-        floorHeight + wallHeight - 1.0,
-        { collidable: false },
-      );
-      this.addBoxRecord(
-        capitalRecords,
-        edge,
-        postOffset,
-        gateFrameWidth + 1.4,
-        1.8,
-        postDepth + 1.2,
-        floorHeight + wallHeight - 1.0,
-        { collidable: false },
-      );
-
-      // 5. Bright jamb strips define the usable opening rather than the full wall.
-      const jambOffset = gateWidth / 2 - 0.32;
-      const jambHeight = openingHeight - 1.2;
-      const jambCenterY = floorHeight + jambHeight / 2 + 0.6;
-      this.addBoxRecord(
-        jambGlowRecords,
-        edge,
-        -jambOffset,
-        0.46,
-        jambHeight,
-        postDepth * 0.7,
-        jambCenterY,
-        { collidable: false },
-      );
-      this.addBoxRecord(
-        jambGlowRecords,
-        edge,
-        jambOffset,
-        0.46,
-        jambHeight,
-        postDepth * 0.7,
-        jambCenterY,
-        { collidable: false },
-      );
-
-      // 6. Deep transom beam, lifted to create a clearer, more human-scaled door.
-      const transomHeight = 1.8;
-      this.addBoxRecord(
-        transomBeamRecords,
-        edge,
-        0,
-        gateWidth + 2 * gateFrameWidth,
-        transomHeight,
-        postDepth + 0.8,
-        floorHeight + openingHeight + transomHeight / 2,
-        { collidable: false },
-      );
-
-      // 7. Luminous threshold across the top of the open passage.
-      this.addBoxRecord(
-        transomGlowRecords,
-        edge,
-        0,
-        gateWidth,
-        0.28,
-        1.2,
-        floorHeight + openingHeight + 0.03,
-        { collidable: false },
-      );
-
-      // 8. Inset header panel above the clear opening.
-      const panelBase = openingHeight + transomHeight;
-      const panelHeight = Math.max(1, wallHeight - panelBase - 0.8);
-      this.addBoxRecord(
-        transomPanelRecords,
-        edge,
-        0,
-        gateWidth + 0.4,
-        panelHeight,
-        wallThickness,
-        floorHeight + panelBase + panelHeight / 2,
-        { collidable: false },
-      );
+      // Straight, flush light strips on both faces: no crests, tubes, bulky
+      // plinths or raised thresholds intruding into the passage.
+      const normalX = -axisZ;
+      const normalZ = axisX;
+      for (const sectorId of [edge.aSectorId, edge.bSectorId]) {
+        const sector = this.sectorById.get(sectorId);
+        const side = Math.sign(
+          (sector.center.x - edge.center.x) * normalX
+          + (sector.center.z - edge.center.z) * normalZ,
+        ) || 1;
+        const faceOffset = side * (frameDepth / 2 + 0.04);
+        const color = getSectorInfo(sector.id, sector.order).accent;
+        const face = {
+          x: edge.center.x + normalX * faceOffset,
+          z: edge.center.z + normalZ * faceOffset,
+          yaw,
+          color,
+          thickness: 0.08,
+        };
+        for (const postSide of [-1, 1]) {
+          lightRecords.push({ ...face,
+            x: face.x + axisX * postSide * postOffset,
+            z: face.z + axisZ * postSide * postOffset,
+            y: floorHeight + openingHeight / 2,
+            length: 0.16, height: openingHeight,
+          });
+        }
+        lightRecords.push({ ...face,
+          y: floorHeight + openingHeight + gateFrameWidth / 2,
+          length: gateWidth + gateFrameWidth, height: 0.16,
+        });
+      }
     }
 
-    // Required core instanced meshes
-    this.wallInstancedMesh = this.createInstancedBoxes(
-      wallRecords,
-      this.wallMaterial,
-      'StructuralWalls',
-    );
-    this.frameInstancedMesh = this.createInstancedBoxes(
-      frameRecords,
-      this.gateFrameMaterial,
-      'OpenGateFrames',
-    );
+    this.wallInstancedMesh = this.createInstancedBoxes(wallRecords, this.wallMaterial, 'StructuralWalls');
+    this.frameInstancedMesh = this.createInstancedBoxes(frameRecords, this.gateFrameMaterial, 'OpenGateFrames');
+    this.portalLights = this.createInstancedBoxes(lightRecords, this.portalLightMaterial, 'PortalLightStrips');
     this.wallRecordCount = wallRecords.length;
     this.frameRecordCount = frameRecords.length;
-
-    // Architectural decorative gate enhancements
-    this.portalThresholds = this.createInstancedBoxes(
-      thresholdRecords,
-      this.thresholdMaterial,
-      'PortalThresholds',
-    );
-    this.portalThresholdGlow = this.createInstancedBoxes(
-      thresholdGlowRecords,
-      this.gateGlowMaterial,
-      'PortalThresholdGlow',
-    );
-    this.portalPlinths = this.createInstancedBoxes(
-      plinthRecords,
-      this.gateTrimMaterial,
-      'PortalPlinths',
-    );
-    this.portalCapitals = this.createInstancedBoxes(
-      capitalRecords,
-      this.gateTrimMaterial,
-      'PortalCapitals',
-    );
-    this.portalJambGlow = this.createInstancedBoxes(
-      jambGlowRecords,
-      this.gateGlowMaterial,
-      'PortalJambGlow',
-    );
-    this.portalTransomBeams = this.createInstancedBoxes(
-      transomBeamRecords,
-      this.gateTrimMaterial,
-      'PortalTransomBeams',
-    );
-    this.portalTransomGlow = this.createInstancedBoxes(
-      transomGlowRecords,
-      this.gateGlowMaterial,
-      'PortalTransomGlow',
-    );
-    this.portalTransomPanels = this.createInstancedBoxes(
-      transomPanelRecords,
-      this.transomPanelMaterial,
-      'PortalTransomPanels',
-    );
-    this.portalBezels = this.createInstancedGeometry(
-      this.portalBezelGeometry,
-      this.gateTrimMaterial,
-      portalBezelRecords,
-      'PortalBevelledBezels',
-    );
-    this.portalLightRings = this.createInstancedGeometry(
-      this.portalLightGeometry,
-      this.portalLightMaterial,
-      portalLightRecords,
-      'PortalSectorLightRings',
-    );
-    this.portalCrests = this.createInstancedGeometry(
-      this.portalCrestGeometry,
-      this.portalCrestMaterial,
-      portalCrestRecords,
-      'PortalHexCrests',
-    );
-  }
-
-  createInstancedGeometry(geometry, material, records, name) {
-    const mesh = new THREE.InstancedMesh(geometry, material, records.length);
-    mesh.name = name;
-    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    const transform = new THREE.Object3D();
-
-    records.forEach((record, index) => {
-      transform.position.set(record.x, record.y, record.z);
-      transform.rotation.set(0, record.yaw, 0);
-      transform.scale.setScalar(record.scale ?? 1);
-      transform.updateMatrix();
-      mesh.setMatrixAt(index, transform.matrix);
-      if (record.color !== undefined) mesh.setColorAt(index, new THREE.Color(record.color));
-    });
-
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingBox();
-    mesh.computeBoundingSphere();
-    this.group.add(mesh);
-    return mesh;
   }
 
   createInstancedBoxes(records, material, name) {
@@ -707,9 +325,11 @@ export class HexMap {
       transform.scale.set(record.length, record.height, record.thickness);
       transform.updateMatrix();
       mesh.setMatrixAt(index, transform.matrix);
+      if (record.color !== undefined) mesh.setColorAt(index, new THREE.Color(record.color));
     });
 
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingBox();
     mesh.computeBoundingSphere();
     this.group.add(mesh);
@@ -804,11 +424,6 @@ export class HexMap {
 
   setDebugVisible(visible) {
     this.debugGroup.visible = visible;
-  }
-
-  update(elapsedSeconds = 0) {
-    const pulse = 1.42 + (Math.sin(elapsedSeconds * 1.8) + 1) * 0.22;
-    this.gateGlowMaterial.emissiveIntensity = pulse;
   }
 
   updateDebugPlayer(position) {
