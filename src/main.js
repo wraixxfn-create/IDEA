@@ -184,7 +184,7 @@ function updatePrompt() {
 
   enterButton.disabled = false;
   enterLabel.textContent = hasStarted ? 'Riprendi esplorazione' : 'Click to explore';
-  promptNote.textContent = 'Mouse orbita · V cambia vista · M mappa · Shift scatto · Esc menù';
+  promptNote.textContent = 'Mouse orbita · Spazio salta · V cambia vista · M mappa · Shift scatto · Esc menù';
 }
 
 player.onLockChange = (locked) => {
