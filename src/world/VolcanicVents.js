@@ -12,10 +12,11 @@
  * already uses, after the landscape has settled, so the crater, the basin, the
  * ridges and every gate approach keep the exact shape they were baked with,
  * and a vent is ground the eye sees and the feet stand on rather than a prop
- * dropped on top of it. Nothing else about the sector changes: no lava, no
- * particles, no prop meshes, no damage, no collision volumes — the vents are a
- * shape in the rock, about two units of relief at their deepest, and about a
- * quarter of the crater's width at their widest.
+ * dropped on top of it. Nothing else about the sector changes: no particles,
+ * no prop meshes, no damage, no collision volumes — the vents are a shape in
+ * the rock, about two units of relief at their deepest, and about a quarter of
+ * the crater's width at their widest. (The lava pool added later keeps the same
+ * discipline, and the vents stay well outside its bowl.)
  *
  * A vent is one profile in a normalised coordinate `u`:
  *

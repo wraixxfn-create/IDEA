@@ -280,7 +280,7 @@ export const MAP_CONFIG = Object.freeze({
   // The rim — and a radial apron around every gate — fades back to the exact
   // shared floor height, so the sector stays seamless with its neighbours and
   // every entrance stays level. This step is shape only: a simple gray/dark
-  // rock material, no lava, no particles.
+  // rock material, no particles.
   volcanicRockColor: 0x4f5157,
   volcanicRockDarkColor: 0x26282c,
   // 64 divisions keeps the lattice light (~15.7k vertices, ~24.6k faces —
@@ -307,6 +307,52 @@ export const MAP_CONFIG = Object.freeze({
   // plain data in VolcanicTerrain.js (`DEFAULT_VOLCANIC_LAYOUT`) and can be
   // overridden per sector through `volcanicFeatures` — the main crater's vent,
   // rim radius, crest and depth ride in there with everything else.
+  // --- HEX_SE lava ---------------------------------------------------------
+  // The sector's single lava pool (src/world/LavaPool.js): one level sheet of
+  // molten rock in the floor of the main crater, its outline where the baked
+  // crater bowl crosses it, ringed by the cooled bank of crust it threw up
+  // around its own edge. Nothing else in HEX_SE carries lava — no rivers, no
+  // second pool, no vents of molten rock — and the pool is deliberately
+  // inert: no animation, no particles, no smoke, no light, no damage.
+  // `lavaPool` is plain data (placement, depth, bank, mesh resolution) and
+  // `false` removes the pool outright; `lavaPoolEnabled: false` does the same
+  // from the switchboard. The material below is reusable on purpose: any later
+  // lava feature drawn with `createLavaMaterial(config)` shares this look.
+  lavaPoolEnabled: true,
+  lavaPool: Object.freeze({
+    // Sector-local placement: a few units south-west of the crater's vent
+    // (38, 84), over the deepest ground of the bowl, so the lake pools against
+    // one side of the crater instead of sitting dead centre in it.
+    x: 34,
+    z: 79,
+    radius: 26,
+    // The basin the pool fills, the depth of the molten rock itself, and the
+    // cooled bank it has raised around its own edge — all fractions of
+    // `volcanicTerrainAmplitude`, so the pool grows with the landscape like the
+    // crater and the vents do.
+    basin: 0.155,
+    depth: 0.035,
+    bank: 0.075,
+    segments: 160,
+    rings: 28,
+  }),
+  // The lava material itself: a static, emissive, vertex-coloured surface. The
+  // sheet's own vertex colours carry the heat (dark crust at the margin, molten
+  // rock in the middle, rafts of cooled skin between) and `lavaCrustTile` is
+  // the seamless crust pattern laid over it — bright plates with glowing seams
+  // — repeated every `lavaCrustTile` units. The tile multiplies both the albedo
+  // and the emission, so it stays bright: `lavaEmissiveIntensity` is what keeps
+  // the pool bright without turning it into a lamp — it is tuned to read as
+  // molten rock under the sector's own sun and sky, not to light them.
+  lavaColor: 0xffffff,
+  lavaEmissiveColor: 0xffe3c2,
+  lavaEmissiveIntensity: 1,
+  lavaRoughness: 0.86,
+  lavaMetalness: 0.03,
+  lavaCrustTile: 19,
+  lavaCrustCells: 7,
+  lavaCrustTextureSize: 256,
+  lavaCrustSeed: 0x1a7a5eed,
   // The small vents that are cut into that landscape afterwards are plain data
   // too (`DEFAULT_VOLCANIC_VENTS` in src/world/VolcanicVents.js): seven seeded
   // openings — round throats, a shallow silted dish and two narrow cracks —

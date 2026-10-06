@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ForestTerrain } from './ForestTerrain.js';
 import { carveVolcanicVents, planVolcanicVentLayout, ventShadeAt } from './VolcanicVents.js';
+import { carveLavaPool, lavaPoolShadeAt, planLavaPool } from './LavaPool.js';
 
 /**
  * VolcanicTerrain — the ground model of HEX_SE and its collision surface.
@@ -43,6 +44,13 @@ import { carveVolcanicVents, planVolcanicVentLayout, ventShadeAt } from './Volca
  * already-baked lattice afterwards, so the crater, the basin and the ridges
  * keep exactly the shape this module baked and the vents ride in the same
  * surface the explorer stands on.
+ *
+ * The last pass is the lava: `carveLavaPool` (src/world/LavaPool.js) raises the
+ * ground inside the crater that the sector's single lava pool covers onto the
+ * bed its molten sheet ponds over — and nothing else, so the crater, the vents
+ * and every statistic of the relief above the waterline stay exactly as baked.
+ * The rock around the shore is shaded with the pool's own cooled margin, which
+ * is where the transition into the lava starts.
  */
 
 function clamp01(value) {
@@ -251,9 +259,14 @@ const ROCK_ASH_TINT = new THREE.Color(1.17, 1.16, 1.13);
 const ROCK_SCREE_TINT = new THREE.Color(0.8, 0.8, 0.84);
 const VENT_THROAT_TINT = new THREE.Color(0.42, 0.43, 0.47);
 const VENT_SCORIA_TINT = new THREE.Color(1.14, 1.07, 0.97);
+// The pool's own two notes: the cooled crust that hugs its shore (dark, and
+// nearly black where it has just chilled) and the ember the lava throws onto
+// the rock about to melt.
+const LAVA_CRUST_TINT = new THREE.Color(0.44, 0.38, 0.35);
+const LAVA_EMBER_TINT = new THREE.Color(1.24, 0.72, 0.44);
 const rockScratch = new THREE.Color();
 
-export function volcanicRockTintAt(x, z, height, slope = 0, ventThroat = 0, ventRim = 0) {
+export function volcanicRockTintAt(x, z, height, slope = 0, ventThroat = 0, ventRim = 0, lavaCrust = 0, lavaEmber = 0) {
   const mottle = (
     Math.sin(x * 0.043 + 2.1) * Math.cos(z * 0.037 - 1.3)
     + 0.5 * Math.sin((x + z) * 0.021 + 0.6)
@@ -270,6 +283,11 @@ export function volcanicRockTintAt(x, z, height, slope = 0, ventThroat = 0, vent
   // A vent's throat holds the dark, and its ring of ejecta catches the light.
   rockScratch.lerp(VENT_THROAT_TINT, clamp01(ventThroat) * 0.55);
   rockScratch.lerp(VENT_SCORIA_TINT, clamp01(ventRim) * 0.45);
+  // The lava pool writes the first step of its own transition onto the rock:
+  // the cooled crust of its shore, with a faint heat bleeding out of the
+  // waterline. Both are zero further than a few units from the pool.
+  rockScratch.lerp(LAVA_CRUST_TINT, clamp01(lavaCrust) * 0.82);
+  rockScratch.lerp(LAVA_EMBER_TINT, clamp01(lavaEmber) * 0.5);
   const grain = 1 + mottle * 0.05;
   rockScratch.multiplyScalar(grain);
   return rockScratch;
@@ -314,6 +332,17 @@ export class VolcanicTerrain extends ForestTerrain {
     // already built (the crater above all) can move.
     this.vents = planVolcanicVentLayout(config);
     this.ventReport = carveVolcanicVents(this, this.vents);
+    // The lava pool of the main crater (src/world/LavaPool.js) is the last
+    // thing to touch the lattice, and the least: it raises the ground the lava
+    // covers onto the bed the molten sheet ponds over, and leaves every vertex
+    // above the waterline exactly where the crater put it. The crater, the
+    // vents and the rest of the sector cannot move because of it.
+    this.lavaPool = planLavaPool(config, {
+      terrain: this,
+      amplitude: this.amplitude,
+      crater: this.layout.crater,
+    });
+    this.lavaPoolReport = carveLavaPool(this, this.lavaPool);
     this.writeHeights();
     this.geometry.dispose();
     this.geometry = this.createGeometry();
@@ -559,14 +588,18 @@ export class VolcanicTerrain extends ForestTerrain {
 
     const normals = geometry.getAttribute('normal');
     const colors = geometry.getAttribute('color');
-    // During the base constructor's placeholder bake there are no vents yet;
-    // the real bake below shades them in.
+    // During the base constructor's placeholder bake there are no vents and no
+    // pool yet; the real bake below shades them in.
     const vents = this.vents ?? [];
+    const pool = this.lavaPool ?? null;
     for (let v = 0; v < this.vertexCount; v += 1) {
       const up = THREE.MathUtils.clamp(normals.getY(v), 1e-4, 1);
       const slope = Math.sqrt(Math.max(0, 1 - up * up)) / up;
       const shade = vents.length
         ? ventShadeAt(this.positions[v * 3], this.positions[v * 3 + 2], vents)
+        : null;
+      const lava = pool
+        ? lavaPoolShadeAt(this.positions[v * 3], this.positions[v * 3 + 2], this.heights[v], pool)
         : null;
       const tint = volcanicRockTintAt(
         this.positions[v * 3],
@@ -575,6 +608,8 @@ export class VolcanicTerrain extends ForestTerrain {
         slope,
         shade?.throat ?? 0,
         shade?.rim ?? 0,
+        lava?.crust ?? 0,
+        lava?.ember ?? 0,
       );
       colors.setXYZ(v, tint.r, tint.g, tint.b);
     }
@@ -586,6 +621,8 @@ export class VolcanicTerrain extends ForestTerrain {
     // yet; the real bake below overwrites the count.
     geometry.userData.gateAprons = this.gateAprons?.length ?? 0;
     geometry.userData.vents = vents.length;
+    geometry.userData.lavaPool = pool?.id ?? null;
+    geometry.userData.lavaLevel = pool?.level ?? null;
     return geometry;
   }
 }
