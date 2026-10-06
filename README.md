@@ -17,7 +17,7 @@ For a production build, run `npm run build`. The generated site is static and do
 - **Shift** — trigger a directional dash (short burst with a cooldown)
 - **Mouse** — orbit in third person, look around in first person; the follow camera keeps itself above the terrain, and flight allows a wider vertical orbit
 - **V** — switch between third and first person (also on the pause menu; the choice is remembered)
-- **M** — open the world map, and press it again to close it (**Esc** and the ✕ button close it too)
+- **M** — open the world map, and press it again to close it (**Esc** and the ✕ button close it too). The map is an overlay, not a pause screen: the world keeps running underneath it, the keyboard keeps working, and closing it never needs a key to be pressed twice
 - The follow-camera distance is fixed (scrolling does not zoom)
 - **Double-tap Space** — toggle flight; the second press lifts off
 - **Hold Space / Ctrl** — rise / descend while flying; double-tap Space again to land
@@ -45,7 +45,13 @@ Press **V** (or use the pause-menu button) to swap the camera between the two mo
 
 ## World map
 
-**M** opens the overview in `src/ui/Minimap.js` and **M** closes it again (so do **Esc** and the ✕ in the panel's header). Opening it releases the pointer lock and remembers whether the explorer was playing, so closing the map drops straight back into the world instead of into the pause menu.
+**M** opens the overview in `src/ui/Minimap.js` and **M** closes it again (so do **Esc** and the ✕ in the panel's header). The overlay itself lives in `src/ui/MapOverlay.js`, which exists because of a bug the players kept hitting: opening the map used to *pause* the world. It released the pointer lock, and closing it asked for the lock back from the keypress that closed it — a lock the browser grants a frame or two later. Everything typed in that window was dropped, and the key the player was already holding (the **W** they were walking with) had been cleared when the lock was released, so the explorer stood still until the key was released and pressed again.
+
+The map is now a true overlay:
+
+- it **never touches the pointer lock** and **never clears the key state**, so the explorer keeps walking, dashing and flying while the panel is up, and closing it needs no re-arming at all;
+- the world **keeps running** behind it — the wind, the mist, the portals and the explorer all advance — so closing the map drops the player exactly where they are;
+- the only lock request left is a fallback for the case where the browser dropped the lock on its own (Esc, a tab switch, a fullscreen change) while the map was open, and it is skipped when the map was opened from the pause menu.
 
 The panel draws the eight sectors, their portals and the explorer's position and heading on a 2D canvas at 12 Hz. The bitmap is resized only when the device pixel ratio actually changes — the canvas used to be multiplied by that ratio on every single frame, which within a second left the tab allocating gigapixel canvases and far too busy to answer the keypress that would have closed the map.
 
@@ -71,10 +77,11 @@ Every sector is capped by a curved hexagonal cupola that is **painted with a rea
 `HEX_S` is the showcase sector and carries the densest treatment:
 
 - **Ground** — `src/world/ForestTerrain.js` bakes a real forest floor: a hexagonal triangular lattice (96 divisions, ~28 k welded vertices, 55 k triangles) displaced by warped fractal noise, relaxed, slope-limited and faded to the exact shared-edge height, so adjacent hexagons stay seamless. Every terrain vertex is shaded for mossy hollows, sun-bleached leaf drifts, damp humus and bare scree on the steep faces, and hand-sized leaf litter is scattered over it, each leaf lying on the slope it fell on.
-- **Undergrowth** — `src/world/ForestDetail.js` plants grass and fern tufts, shrubs, mossy boulders, fallen logs and mushroom clusters. Everything follows a density field, so the floor grows in drifts and clearings instead of an even sprinkle, and every instance is planted on the terrain relief, tilted into the slope it stands on, and kept inside the hex.
-- **Pines** — `src/world/PineGrove.js` grows mature spruces and saplings with exposed roots, bark grain, hanging cones, per-tree height and needle-hue variation, and fuller needle sprays.
+- **Undergrowth** — `src/world/ForestDetail.js` plants ~7,200 grass and fern tufts, ~570 shrubs, 150 mossy boulders, 56 fallen logs, **760 broken branches** and ~340 mushroom clusters. Everything follows a density field, so the floor grows in drifts and clearings instead of an even sprinkle, and every instance is planted on the terrain relief, tilted into the slope it stands on, and kept inside the hex. The scatter resolves its minimum spacing through a uniform grid, so tripling the instance count did not triple the build time.
+- **Pines** — `src/world/PineGrove.js` grows a wood of **170 trunks** in three classes: the eighteen authored mature spruces, **54 young pines** that carry the density (the same boughs, forks and sprays in a shorter, cheaper tree), and ~100 saplings filling the last gaps. Every tree keeps its exposed roots, bark grain, hanging cones, per-tree height and needle-hue variation.
+- **Leaves** — the floor itself is carpeted with **16,000** hand-sized fallen leaves, each lying on the slope it fell on (`HexMap.buildForestLeafLitter`).
 - **Wind** — `src/world/wind.js` injects a shared sway into the standard vertex shader. One clock drives the crowns, the grass and the ferns, so the whole forest breathes on the same gust while trunks stay planted.
-- **Mist** — procedural ground-mist layers drift between the trunks with a soft radial falloff and no texture seam, hung low enough that the fog pools in the hollows while the crowns of the relief break through it.
+- **Mist** — **eight** stacked, drifting layers of ground fog with a soft radial falloff and no texture seam. Each layer samples the mist noise through its own phase offset and its own heading, so the stack reads as one deep volume of fog rather than eight sheets of glass; it starts just above the soil, pools in the hollows, climbs to about 16 units and fades out near the lens, so the ground underfoot stays crisp while the distance is swallowed.
 - **Light** — a dedicated green, amber and teal canopy-light rig plus a brighter canopy wash keeps the dense grove readable; the forest also receives the fullest cloud deck and the strongest sun halo.
 
 ### One surface for the eye and the feet
@@ -87,7 +94,7 @@ The old forest floor was drawn from one formula and collided against another, so
 
 The pause menu offers resume, a view toggle and the map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
 
-Run the topology, terrain, sky, undergrowth, map, character and controller checks (40 tests) with:
+Run the topology, terrain, sky, undergrowth, map overlay, map drawing, character and controller checks (46 tests) with:
 
 ```bash
 npm test

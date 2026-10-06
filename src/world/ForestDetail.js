@@ -5,9 +5,10 @@ import { applyWindSway } from './wind.js';
 
 /**
  * The ground layer of the forest biome: grass and fern tufts, shrubs, mossy
- * rocks, fallen logs, mushroom clusters and the drifting mist. Everything is
- * seeded, planted on the terrain relief, kept inside HEX_S and merged into one
- * instanced mesh per type, so the extra richness costs a handful of draw calls.
+ * rocks, fallen logs and broken branches, mushroom clusters and the stacked
+ * mist. Everything is seeded, planted on the terrain relief, kept inside HEX_S
+ * and merged into one instanced mesh per type, so a floor of ten thousand
+ * pieces still costs a handful of draw calls.
  */
 
 const GRASS_ROOT_COLORS = [0x27401f, 0x2f4a26, 0x37542b].map((c) => new THREE.Color(c));
@@ -43,6 +44,10 @@ const MIST_FRAGMENT_SHADER = /* glsl */`
   uniform float uOpacity;
   uniform float uRadius;
   uniform float uTime;
+  // Every layer of the stack samples the same noise field through a different
+  // offset, so eight layers of fog read as one deep volume instead of eight
+  // copies of the same sheet of glass.
+  uniform vec2 uPhase;
 
   float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -76,10 +81,15 @@ const MIST_FRAGMENT_SHADER = /* glsl */`
   void main() {
     float radius = length(vLocal) / uRadius;
     float edge = 1.0 - smoothstep(0.25, 1.0, radius);
-    float drift = fbm(vLocal * 0.018 + vec2(uTime * 0.021, uTime * 0.013));
-    float wisps = fbm(vLocal * 0.052 - vec2(uTime * 0.035, uTime * 0.017));
-    float nearFade = smoothstep(3.0, 26.0, distance(cameraPosition, vWorldPosition));
-    float alpha = uOpacity * edge * nearFade * (0.30 + 0.85 * drift * (0.55 + 0.45 * wisps));
+    vec2 phased = vLocal + uPhase;
+    float drift = fbm(phased * 0.018 + vec2(uTime * 0.021, uTime * 0.013));
+    float wisps = fbm(phased * 0.052 - vec2(uTime * 0.035, uTime * 0.017));
+    // Eight thin layers stack up fast, so each one has to keep well clear of
+    // the lens: the floor under the explorer's feet stays crisp and the fog
+    // rolls in from about fifteen metres out; close layers would only wash
+    // the whole screen white.
+    float nearFade = smoothstep(5.5, 26.0, distance(cameraPosition, vWorldPosition));
+    float alpha = uOpacity * edge * nearFade * (0.24 + 0.72 * drift * (0.55 + 0.45 * wisps));
     vec3 color = uColor * (0.82 + 0.32 * drift);
     gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
     #include <colorspace_fragment>
@@ -120,17 +130,28 @@ export function buildForestMist(sector, config = MAP_CONFIG) {
 
   const uniforms = { value: 0 };
   const radius = config.hexRadius * 0.92;
+  const baseOpacity = config.forestMistOpacity ?? 0.2;
   const color = new THREE.Color(config.forestMistColor ?? 0xdcecf0);
+  const random = makeRandom(0x5015f0 + sector.order * 71);
   const meshes = [];
+  let thickness = 0;
 
   for (let layer = 0; layer < layers; layer += 1) {
+    // A tall stack thins out towards the top instead of fading to nothing:
+    // the canopy fog is subtler than the ground fog, but it is still there.
+    // The stack is deliberately deep and thin rather than shallow and opaque:
+    // eight drifting layers read as real fog, one thick sheet reads as milk.
+    const opacity = baseOpacity * Math.max(0.26, 1 - layer * 0.1);
+    const phase = new THREE.Vector2(random() * 240, random() * 240);
+    thickness += opacity;
     const material = new THREE.ShaderMaterial({
       name: `ForestMistMaterial_${layer}`,
       uniforms: {
         uColor: { value: color },
-        uOpacity: { value: (config.forestMistOpacity ?? 0.2) * (1 - layer * 0.28) },
+        uOpacity: { value: opacity },
         uRadius: { value: radius },
         uTime: uniforms,
+        uPhase: { value: phase },
       },
       vertexShader: MIST_VERTEX_SHADER,
       fragmentShader: MIST_FRAGMENT_SHADER,
@@ -144,11 +165,20 @@ export function buildForestMist(sector, config = MAP_CONFIG) {
     mesh.position.y = (config.forestMistHeight ?? 5.5) + layer * (config.forestMistSpacing ?? 4.5);
     mesh.renderOrder = 30 + layer;
     mesh.userData.sectorId = sector.id;
-    mesh.userData.driftSpeed = (config.forestMistDriftSpeed ?? 0.012) * (layer % 2 === 0 ? 1 : -0.72);
+    mesh.userData.layer = layer;
+    mesh.userData.opacity = opacity;
+    mesh.userData.driftSpeed = (config.forestMistDriftSpeed ?? 0.012)
+      * (layer % 2 === 0 ? 1 : -0.72)
+      * (1 + layer * 0.05);
+    // The stack is not a perfect tower of concentric discs: each layer is
+    // rotated off its neighbours so the drifting noise never lines up.
+    mesh.rotation.y = random() * Math.PI * 2;
     mesh.frustumCulled = false;
     group.add(mesh);
     meshes.push(mesh);
   }
+
+  group.userData.thickness = thickness;
 
   return {
     group,
@@ -380,6 +410,99 @@ function createLogGeometry(seed = 0x10953) {
   return result;
 }
 
+/**
+ * A fallen branch: a tapered, slightly bent bough with three side twigs and a
+ * snapped stub, bark-dark on the underside and mossy where it faces the sky.
+ * It lies flat, so a few hundred of them can carpet the wood with the broken
+ * wood a real forest floor is full of.
+ */
+function createBranchGeometry(seed = 0x8a41c) {
+  const random = makeRandom(seed);
+  const builder = makeBuilder();
+  const dark = pickColor(random, BARK_DARK_COLORS);
+  const light = pickColor(random, BARK_LIGHT_COLORS);
+  const sapwood = pickColor(random, SAPWOOD_COLORS);
+  const moss = pickColor(random, MOSS_ON_WOOD);
+  const up = new THREE.Vector3(0, 1, 0);
+
+  const appendSegment = (from, to, radiusFrom, radiusTo, radialSegments = 5, capped = false) => {
+    const direction = new THREE.Vector3().subVectors(to, from);
+    const length = Math.max(0.01, direction.length());
+    const source = new THREE.CylinderGeometry(
+      radiusTo, radiusFrom, length, radialSegments, 1, !capped,
+    ).toNonIndexed();
+    const quaternion = new THREE.Quaternion().setFromUnitVectors(
+      up, direction.clone().normalize(),
+    );
+    const midpoint = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5);
+    source.applyQuaternion(quaternion);
+    source.translate(midpoint.x, midpoint.y, midpoint.z);
+    const positions = source.attributes.position;
+    const normals = source.attributes.normal;
+    const vertices = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const facing = new THREE.Vector3();
+
+    for (let i = 0; i < positions.count; i += 3) {
+      let capFacing = true;
+      facing.set(0, 0, 0);
+      for (let corner = 0; corner < 3; corner += 1) {
+        const index = i + corner;
+        vertices[corner].set(positions.getX(index), positions.getY(index), positions.getZ(index));
+        const normalY = Math.abs(normals.getY(index));
+        if (normalY < 0.9) capFacing = false;
+        facing.x += normals.getX(index);
+        facing.y += normals.getY(index);
+        facing.z += normals.getZ(index);
+      }
+      if (capFacing) {
+        // The cut face of the bough: pale, exposed sapwood.
+        pushTriangle(builder, vertices[0], vertices[1], vertices[2], sapwood, sapwood, sapwood);
+        continue;
+      }
+      // Anything facing the sky keeps moss and bleached bark; the underside
+      // stays dark and damp.
+      const upward = THREE.MathUtils.smoothstep(facing.normalize().y, -0.25, 0.8);
+      const shade = scratchColor.copy(dark).lerp(light, upward).clone();
+      shade.lerp(moss, upward * 0.45);
+      pushTriangle(builder, vertices[0], vertices[1], vertices[2], shade, shade, shade);
+    }
+    source.dispose();
+  };
+
+  const bend = between(random, -0.16, 0.16);
+  appendSegment(
+    new THREE.Vector3(-1.08, 0.07, 0.02),
+    new THREE.Vector3(0.02, 0.03, bend),
+    0.095, 0.07, 5, true,
+  );
+  appendSegment(
+    new THREE.Vector3(0.02, 0.03, bend),
+    new THREE.Vector3(1.12, 0.05, -bend * 0.6),
+    0.07, 0.028, 5, true,
+  );
+  for (let twig = 0; twig < 3; twig += 1) {
+    const originX = between(random, -0.62, 0.72);
+    const origin = new THREE.Vector3(originX, 0.05, bend * 0.4);
+    const angle = between(random, -1.2, 1.2) + (twig % 2 === 0 ? 0.5 : 2.4);
+    const length = between(random, 0.3, 0.62);
+    appendSegment(
+      origin,
+      origin.clone().add(new THREE.Vector3(
+        Math.cos(angle) * length,
+        between(random, 0.02, 0.2),
+        Math.sin(angle) * length,
+      )),
+      0.042, 0.016, 4, true,
+    );
+  }
+
+  const geometry = finishGeometry(builder, 'ForestBranchGeometry');
+  geometry.translate(0, -geometry.boundingBox.min.y, 0);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 /** A small mushroom: tapered stem plus a domed, slightly tilted cap. */
 function createMushroomGeometry(seed = 0x5a551f) {
   const random = makeRandom(seed);
@@ -430,11 +553,44 @@ function patchDensity(x, z) {
   return value * 0.5 + 0.5;
 }
 
+/**
+ * Deterministic scatter inside the hex.
+ *
+ * The `minSpacing` test used to scan every placement already made, so the
+ * scatter cost grew with the square of the count — fine for a few hundred
+ * tufts, painful for the thousands HEX_S now carries. A uniform grid keyed on
+ * the spacing distance answers the same question from the nine neighbouring
+ * cells, which keeps the result identical while the cost stays flat.
+ */
 function scatter(random, count, { radius, padding = 6, avoid = [], minSpacing = 0, density = null }) {
   const placements = [];
   const limit = Math.max(0, radius - padding);
   let attempts = 0;
   const maxAttempts = count * (density ? 220 : 80) + 40;
+  const cellSize = Math.max(0.001, minSpacing);
+  const cells = new Map();
+  const keyOf = (cellX, cellZ) => cellX * 1000003 + cellZ;
+  const addToGrid = (placed) => {
+    const key = keyOf(Math.floor(placed.x / cellSize), Math.floor(placed.z / cellSize));
+    const bucket = cells.get(key);
+    if (bucket) bucket.push(placed);
+    else cells.set(key, [placed]);
+  };
+  const tooCloseToNeighbour = (x, z) => {
+    const cellX = Math.floor(x / cellSize);
+    const cellZ = Math.floor(z / cellSize);
+    for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+      for (let offsetZ = -1; offsetZ <= 1; offsetZ += 1) {
+        const bucket = cells.get(keyOf(cellX + offsetX, cellZ + offsetZ));
+        if (!bucket) continue;
+        for (const placed of bucket) {
+          if (Math.hypot(placed.x - x, placed.z - z) < minSpacing) return true;
+        }
+      }
+    }
+    return false;
+  };
+
   while (placements.length < count && attempts < maxAttempts) {
     attempts += 1;
     const x = between(random, -limit, limit);
@@ -442,9 +598,10 @@ function scatter(random, count, { radius, padding = 6, avoid = [], minSpacing = 
     if (!isPointInsideHex(x, z, 0, 0, limit)) continue;
     if (density && random() > density(x, z)) continue;
     if (avoid.some((zone) => Math.hypot(zone.x - x, zone.z - z) < zone.radius)) continue;
-    if (minSpacing > 0
-      && placements.some((placed) => Math.hypot(placed.x - x, placed.z - z) < minSpacing)) continue;
-    placements.push({ x, z });
+    if (minSpacing > 0 && tooCloseToNeighbour(x, z)) continue;
+    const placed = { x, z };
+    placements.push(placed);
+    if (minSpacing > 0) addToGrid(placed);
   }
   return placements;
 }
@@ -557,6 +714,7 @@ export function buildForestFloorDetail({
   const shrubCount = Math.max(0, Math.floor(config.forestShrubCount ?? 84));
   const rockCount = Math.max(0, Math.floor(config.forestRockCount ?? 62));
   const logCount = Math.max(0, Math.floor(config.forestLogCount ?? 16));
+  const branchCount = Math.max(0, Math.floor(config.forestBranchCount ?? 0));
   const mushroomCount = Math.max(0, Math.floor(config.forestMushroomCount ?? 70));
 
   const grassMaterial = new THREE.MeshStandardMaterial({
@@ -626,7 +784,10 @@ export function buildForestFloorDetail({
       sector,
       config,
       transformFor: (transform, placement, offset) => {
-        const scale = between(random, 0.75, 1.85);
+        // Slightly tighter than the original tuft scale: with three times as
+        // many clumps on the floor, a few three-metre blades would turn the
+        // wood into a marsh, so the giants are trimmed back.
+        const scale = between(random, 0.62, 1.62);
         transform.position.set(
           sector.center.x + placement.x,
           offset - 0.05,
@@ -738,6 +899,45 @@ export function buildForestFloorDetail({
       },
     }));
     group.userData.logCount = logPlacements.length;
+  }
+
+  if (branchCount > 0) {
+    // Broken boughs lie wherever the wind dropped them: no density field, no
+    // clustering, just a thick litter of dead wood over the whole floor.
+    const branchPlacements = scatter(random, branchCount, {
+      radius,
+      padding: 12,
+      avoid,
+      minSpacing: 2.6,
+    });
+    layers.push(createInstancedLayer({
+      name: 'ForestFallenBranches_HEX_S',
+      geometry: createBranchGeometry(0x8b2a7 + sector.order),
+      material: woodMaterial,
+      placements: branchPlacements,
+      floorHeightAt,
+      normalAt,
+      alignToNormal: 0.82,
+      sector,
+      config,
+      transformFor: (transform, placement, offset) => {
+        const scale = between(random, 0.75, 1.7);
+        transform.position.set(
+          sector.center.x + placement.x,
+          offset - 0.03,
+          sector.center.z + placement.z,
+        );
+        // A slight roll lifts one end of the bough off the ground, the way a
+        // branch rests on the litter underneath it.
+        transform.rotation.set(
+          between(random, -0.24, 0.24),
+          random() * Math.PI * 2,
+          between(random, -0.3, 0.3),
+        );
+        transform.scale.set(scale * between(random, 0.85, 1.25), scale, scale);
+      },
+    }));
+    group.userData.branchCount = branchPlacements.length;
   }
 
   if (mushroomCount > 0) {

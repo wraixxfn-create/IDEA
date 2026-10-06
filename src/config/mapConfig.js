@@ -113,8 +113,19 @@ export const MAP_CONFIG = Object.freeze({
   forestLeafColors: Object.freeze([
     0x8a5730, 0xa06b34, 0xc08a45, 0x5d7a37, 0xb08d4a,
   ]),
-  forestLeafCount: 3600,
-  forestTreeCount: 52,
+  // The canopy is deliberately heavy: four times the leaf litter, three times
+  // the trunks and a dense mid-storey of young pines between the eighteen
+  // mature spruces that were already standing here.
+  forestLeafCount: 16000,
+  forestTreeCount: 170,
+  // Of the 170 trunks, the eighteen authored spruces stay as they were and the
+  // next `forestYoungTreeCount` are full young pines; everything that is left
+  // fills the gaps as saplings. A young pine costs about a fifth of a mature
+  // tree, so the wood can be this thick without the needle budget exploding.
+  forestYoungTreeCount: 54,
+  // Trunk-to-trunk spacing of the filler scatter. 15 units packs a real wood
+  // while still leaving lanes the explorer can read a path through.
+  forestTreeSpacing: 15,
   wallColor: 0x545d61,
   gateFrameColor: 0x22272a,
   backgroundColor: 0x8fb6c6,
@@ -163,25 +174,33 @@ export const MAP_CONFIG = Object.freeze({
   // HEX_S is the showcase biome: a denser cloud deck, a stronger halo and a
   // mist layer drifting between the trunks. The canopy coverage is higher and
   // the sky is heavily filtered, so the dome reads as foliage from below.
-  forestCloudCount: 14,
-  forestCloudCoverage: 0.52,
+  forestCloudCount: 18,
+  forestCloudCoverage: 0.62,
   forestCloudSoftness: 0.055,
   forestCloudStrength: 0.72,
   forestSunGlowStrength: 0.55,
   forestMistColor: 0xb8d4c2,
-  forestMistOpacity: 0.35,
-  forestMistLayers: 3,
-  // The relief now rolls between about -11 and +7, so the mist sits low and
-  // pools in the hollows while the crowns of the banks break through it.
-  forestMistHeight: 2.4,
-  forestMistSpacing: 3.2,
-  forestMistDriftSpeed: 0.018,
+  // Eight stacked, drifting layers of ground fog: thick enough to pool in the
+  // hollows, to hang between the trunks and to swallow the undergrowth in the
+  // distance, while the crowns still break through it. Each layer carries its
+  // own noise phase, so the stack reads as one rolling volume of mist rather
+  // than as eight sheets of glass.
+  forestMistOpacity: 0.46,
+  forestMistLayers: 8,
+  // The relief rolls between about -11 and +7, so the stack starts just above
+  // the soil, pools in the hollows and climbs into the lower canopy.
+  forestMistHeight: 1.9,
+  forestMistSpacing: 2.05,
+  forestMistDriftSpeed: 0.026,
   // Undergrowth scattered across the seeded soil of the forest floor.
-  forestGrassCount: 2400,
-  forestShrubCount: 120,
-  forestRockCount: 72,
-  forestLogCount: 20,
-  forestMushroomCount: 90,
+  forestGrassCount: 7200,
+  forestShrubCount: 540,
+  forestRockCount: 150,
+  forestLogCount: 56,
+  // Fallen branches and broken boughs lying among the logs. The wood is thick
+  // enough now that the floor has to be as busy as the canopy above it.
+  forestBranchCount: 760,
+  forestMushroomCount: 260,
   windStrength: 1,
   forestLightColors: Object.freeze([0xd4c98a, 0xf5d6a0, 0xa8c490]),
   forestLightIntensity: 0.52,
