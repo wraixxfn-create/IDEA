@@ -26,6 +26,10 @@ export class PlayerController {
     this.dashCooldownRemaining = 0;
     this.dashDirection = new THREE.Vector2(0, -1);
     this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+    // Jump bookkeeping: `jumps` counts the impulses handed out (handy for the
+    // tests and the debug readouts) and `onJump` lets the HUD react.
+    this.jumps = 0;
+    this.onJump = () => {};
     this.onLockChange = () => {};
     this.onFlightChange = () => {};
     this.onDashChange = () => {};
@@ -183,6 +187,9 @@ export class PlayerController {
         this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
       } else {
         this.lastSpaceTapAt = now;
+        // A *single* press jumps. The pair that toggles flight therefore reads
+        // as a jump that keeps going instead of as a dead first press.
+        this.jump();
       }
       return;
     }
@@ -283,6 +290,27 @@ export class PlayerController {
     this.keys.clear();
     this.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
     this.stopDash();
+  }
+
+  /**
+   * A single Spacebar press jumps.
+   *
+   * The jump is a plain upward impulse handed to the existing gravity and
+   * ground-contact solver, so it composes with everything else the explorer
+   * does: the rig picks up the airborne pose and the landing squash on its own
+   * (it only reads `grounded` and the vertical velocity), the dash carries its
+   * momentum through the air, and a second press inside the double-tap window
+   * converts the jump into a takeoff instead of cutting it short. It is only
+   * available from the ground and never on top of flight or a jump already in
+   * the air.
+   */
+  jump() {
+    if (!this.isLocked || this.isFlying || !this.isGrounded) return false;
+    this.velocityY = Math.max(this.velocityY, this.config.jumpSpeed ?? 10.5);
+    this.isGrounded = false;
+    this.jumps += 1;
+    this.onJump(this);
+    return true;
   }
 
   setFlying(flying) {

@@ -168,6 +168,119 @@ button { font: inherit; }
 .mouse-glyph { display: inline-grid; width: 24px; height: 20px; place-items: center; color: #edf2ef; font: 17px/1 Inter, ui-sans-serif, system-ui, sans-serif; }
 .debug-control { padding-top: 10px; border-top: 1px solid rgba(235, 241, 239, 0.11); }
 
+/* ---- Heading compass --------------------------------------------------- */
+/* Top-left, mirroring the control strip on the right. The card is rotated by
+   a single custom property written once per frame (`--heading`), so the ring of
+   ticks turns, the letters stay upright and the index at the top reads off the
+   bearing the explorer is looking at. */
+.compass {
+  --compass-accent: #c7ddd7;
+  --heading: 0;
+  position: absolute;
+  z-index: 3;
+  top: 112px;
+  left: 34px;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  padding: 13px 15px 11px;
+  border: 1px solid rgba(235, 241, 239, 0.14);
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: opacity 200ms ease;
+  pointer-events: none;
+}
+.compass.is-hidden { opacity: 0; }
+.compass-title {
+  margin: 0;
+  color: rgba(238, 242, 240, 0.5);
+  font: 8px/1 var(--mono);
+  letter-spacing: 0.22em;
+}
+.compass-rose {
+  position: relative;
+  width: 74px;
+  height: 74px;
+  border: 1px solid rgba(235, 241, 239, 0.16);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(12, 18, 20, 0.5) 0%, rgba(12, 18, 20, 0.16) 66%, transparent 68%);
+}
+.compass-card,
+.compass-letters { position: absolute; inset: 0; }
+/* Both the tick ring and the letter ring turn against the heading, so the
+   letter under the index at the top is always the bearing the explorer is
+   looking at — north slides to the left as they turn right, exactly like a
+   real compass card. */
+.compass-card,
+.compass-letters { transform: rotate(calc(var(--heading) * -1deg)); }
+
+/* Each tick is a full-size layer rotated about the centre of the rose, with the
+   hairline drawn near its top edge — so the ring of ticks is positioned by a
+   single angle and never needs a pivot hack. */
+.compass-tick { position: absolute; inset: 0; transform: rotate(var(--angle, 0deg)); }
+.compass-tick::before {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 1px;
+  height: 4px;
+  margin-left: -0.5px;
+  content: '';
+  background: rgba(235, 241, 239, 0.32);
+}
+.compass-tick.is-major::before { top: 3px; height: 7px; background: rgba(235, 241, 239, 0.6); }
+/* The north tick is the compass's own north: full length and in the accent, so
+   it stays readable against the ring wherever the card has turned. */
+.compass-tick.is-north::before { background: var(--compass-accent); box-shadow: 0 0 8px rgba(199, 221, 215, 0.55); }
+.compass-letters { color: rgba(238, 242, 240, 0.66); font: 8px/1 var(--mono); }
+.compass-letter {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 14px;
+  height: 10px;
+  margin: -5px 0 0 -7px;
+  place-items: center;
+  letter-spacing: 0.04em;
+  /* Positioned at --angle on the card, counter-rotated by the heading so the
+     letters never turn upside down. */
+  transform: rotate(var(--angle, 0deg)) translateY(-24px)
+    rotate(calc(var(--heading) * 1deg - var(--angle, 0deg)));
+}
+.compass-letter.letter-n { color: var(--compass-accent); }
+.compass-letter.is-active { color: #ffffff; text-shadow: 0 0 9px rgba(255, 255, 255, 0.55); }
+.compass-index {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 9px;
+  height: 8px;
+  margin-left: -4.5px;
+  background: var(--compass-accent);
+  clip-path: polygon(50% 100%, 0% 0%, 100% 0%);
+  opacity: 0.92;
+}
+.compass-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: rgba(235, 241, 239, 0.5);
+}
+.compass-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--mono);
+}
+.compass-heading { color: #f0f4f1; font-size: 13px; letter-spacing: 0.06em; }
+.compass-cardinal { color: var(--compass-accent); font-size: 9px; letter-spacing: 0.14em; }
+
 .experience-prompt {
   position: absolute;
   z-index: 4;
@@ -266,6 +379,15 @@ button { font: inherit; }
   .brand-copy h1 { font-size: 14px; }
   .brand-mark { width: 28px; height: 32px; }
   .control-strip { top: 92px; right: 20px; min-width: 205px; padding: 12px; gap: 7px; }
+  .compass { top: 92px; left: 20px; padding: 10px 12px 9px; gap: 7px; }
+  .compass-rose { width: 62px; height: 62px; }
+  .compass-tick::before { top: 3px; height: 3px; }
+  .compass-tick.is-major::before { top: 2px; height: 6px; }
+  .compass-letter {
+    transform: rotate(var(--angle, 0deg)) translateY(-20px)
+      rotate(calc(var(--heading) * 1deg - var(--angle, 0deg)));
+  }
+  .compass-heading { font-size: 11px; }
   .experience-prompt { bottom: 76px; }
   .debug-state { top: 94px; }
   .flight-state { top: auto; bottom: 58px; }

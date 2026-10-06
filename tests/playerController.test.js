@@ -140,6 +140,71 @@ test('a double Space press toggles flight and gives an immediate takeoff lift', 
   player.dispose();
 });
 
+test('a single Space press jumps clear of the ground and gravity lands it again', () => {
+  const player = makePlayer();
+  const impulses = [];
+  player.onJump = (jumped) => impulses.push(jumped.velocityY);
+  assert.equal(player.jumps, 0);
+
+  tapSpace(player);
+  assert.equal(player.jumps, 1, 'one press is one jump');
+  assert.deepEqual(impulses, [PLAYER_CONFIG.jumpSpeed]);
+  assert.equal(player.isGrounded, false, 'the boots leave the ground on the same press');
+  assert.ok(player.velocityY > 0);
+
+  // The impulse is handed to the ordinary gravity and contact solver, so the
+  // jump is a real arc: up, over, and back down onto the terrain.
+  let apex = player.position.y;
+  for (let step = 0; step < 150; step += 1) {
+    player.update(1 / 60);
+    apex = Math.max(apex, player.position.y);
+    assert.ok(Number.isFinite(player.position.y));
+  }
+  assert.ok(apex > 1.2, `the jump clears a step (apex ${apex.toFixed(2)} u)`);
+  assert.ok(apex < 2.8, `and stays a jump, not a takeoff (apex ${apex.toFixed(2)} u)`);
+  assert.equal(player.isGrounded, true, 'the explorer lands again');
+  assert.ok(Math.abs(player.position.y) < 1e-9, 'and settles back on the floor');
+  assert.equal(player.velocityY, 0);
+
+  // No double jump: while the explorer is in the air the press does nothing.
+  // (The double-tap window is wall-clock, so it is cleared to simulate a press
+  // that comes well after the last one.)
+  player.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+  tapSpace(player);
+  assert.equal(player.jumps, 2);
+  player.update(1 / 60);
+  player.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+  tapSpace(player);
+  assert.equal(player.jumps, 2, 'a second press in mid-air is not a second jump');
+  assert.equal(player.isFlying, false, 'and it is not a takeoff either');
+
+  // Flight has its own use for the key: rising, never jumping.
+  player.setFlying(true);
+  for (let step = 0; step < 60; step += 1) player.update(1 / 60);
+  player.lastSpaceTapAt = Number.NEGATIVE_INFINITY;
+  tapSpace(player);
+  assert.equal(player.jumps, 2, 'Space cannot jump out of flight');
+  assert.equal(player.isFlying, true, 'and it does not cut the flight short');
+  player.dispose();
+});
+
+test('the second press of a double tap turns the jump into a takeoff', () => {
+  const player = makePlayer();
+  tapSpace(player);
+  assert.equal(player.jumps, 1, 'the first press is already a jump');
+  assert.ok(player.position.y <= 0 || player.velocityY > 0);
+
+  // Pressing again inside the window converts the same arc into the takeoff
+  // instead of throwing the jump away.
+  tapSpace(player);
+  assert.equal(player.isFlying, true);
+  assert.ok(player.velocityY >= PLAYER_CONFIG.flightTakeoffSpeed,
+    'the takeoff lift takes over from the jump impulse');
+  player.update(1 / 60);
+  assert.ok(player.position.y > 0);
+  player.dispose();
+});
+
 test('mouse orbit stays above the map floor and the wheel no longer zooms', () => {
   const player = makePlayer();
   player.handleMouseMove({ movementX: 100, movementY: -50 });

@@ -205,6 +205,42 @@ export const MAP_CONFIG = Object.freeze({
   forestLightColors: Object.freeze([0xd4c98a, 0xf5d6a0, 0xa8c490]),
   forestLightIntensity: 0.52,
 
+  // --- HEX_S rain ---------------------------------------------------------
+  // The forest is the only sector with weather. The field is a seeded scatter
+  // of falling streaks (src/world/Rain.js) planted on the baked terrain — each
+  // drop knows the height it lands on — plus the impact ripples that answer it
+  // on the floor. Both are animated entirely in the vertex shader from one
+  // clock, so a whole-sector downpour costs two draw calls and one uniform
+  // update per frame. Set `forestRainEnabled: false` (or call
+  // `world.setRainEnabled(false)`) to clear the sky over the wood.
+  forestRainEnabled: true,
+  // ~34 k columns over the 0.13 km² sector: heavy, steady rain near the lens
+  // without turning the whole hex into a wall of white.
+  forestRainStreakCount: 34000,
+  forestRainRippleCount: 5200,
+  // A drop falls this far, from `ground + fallRange` down to the ground itself.
+  forestRainFallRange: 120,
+  // World units per second at speed 1 — around 46 u/s is a real downpour.
+  forestRainSpeed: 46,
+  // How far a drop drifts sideways over a full fall, and the lean it gives the
+  // streak. Kept in step with the wind so the rain reads as the same weather.
+  forestRainDrift: Object.freeze({ x: 9, z: 4 }),
+  forestRainLength: 1.6,
+  forestRainWidth: 0.05,
+  forestRainOpacity: 0.34,
+  forestRainColor: 0xdff1ff,
+  // Drops and ripples fade out past these distances, so the cost (and the
+  // white) stays where the eye is instead of over the whole sector.
+  forestRainCameraRadius: 68,
+  forestRainRippleRadius: 0.62,
+  forestRainRippleRate: 1.05,
+  forestRainRippleCameraRadius: 34,
+  forestRainRippleOpacity: 0.5,
+  forestRainRippleColor: 0xcfe9f4,
+  // Wet soil: rain darkens the floor and takes the matte off it.
+  forestRainWetRoughness: 0.72,
+  forestRainWetDarkening: 0.82,
+
   // --- HEX_S ground model -----------------------------------------------
   // The forest floor is a baked triangular lattice (src/world/ForestTerrain.js).
   // The mesh the player sees and the surface the player stands on are read
@@ -251,6 +287,9 @@ export const PLAYER_CONFIG = Object.freeze({
   dashSpeed: 42,
   dashDuration: 0.22,
   dashCooldown: 0.65,
+  // One press of Space jumps: `jumpSpeed` 10.5 against `gravity` 28 clears a
+  // little under two units and lands in about three quarters of a second.
+  jumpSpeed: 10.5,
   gravity: 28,
   flightSpeed: 24,
   flightTakeoffSpeed: 14,

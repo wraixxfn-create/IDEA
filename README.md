@@ -1,6 +1,6 @@
 # HEXFIELD — World Foundation
 
-A browser-based Three.js exploration world built from reusable flat-top hexagonal sectors, procedural architecture, an explorer you can follow or look through, and a painted sky — complete with sun and clouds — over every sector.
+A browser-based Three.js exploration world built from reusable flat-top hexagonal sectors, procedural architecture, an explorer you can follow or look through, a painted sky — complete with sun and clouds — over every sector, and rain falling over the forest.
 
 ## Run
 
@@ -19,10 +19,13 @@ For a production build, run `npm run build`. The generated site is static and do
 - **V** — switch between third and first person (also on the pause menu; the choice is remembered)
 - **M** — open the world map, and press it again to close it (**Esc** and the ✕ button close it too). The map is an overlay, not a pause screen: the world keeps running underneath it, the keyboard keeps working, and closing it never needs a key to be pressed twice
 - The follow-camera distance is fixed (scrolling does not zoom)
-- **Double-tap Space** — toggle flight; the second press lifts off
+- **Space** — jump. One press is one jump: an upward impulse handed to the ordinary gravity and ground-contact solver, so the arc lands on the relief (in flight, Space rises instead)
+- **Double-tap Space** — toggle flight; the first press of the pair is the jump, so the takeoff reads as a jump that keeps going rather than as a dead press
 - **Hold Space / Ctrl** — rise / descend while flying; double-tap Space again to land
 - **F3** — toggle the top-down development overview and sector/gate annotations
 - **Esc** — open the pause menu and release the pointer
+
+The HUD carries a **heading compass** in the top-left corner; it needs no key, and it works the same in both views.
 
 ## The explorer
 
@@ -42,6 +45,16 @@ Press **V** (or use the pause-menu button) to swap the camera between the two mo
 
 - **Third person** — the orbiting follow camera. It no longer only checks the ground directly beneath the lens: the whole boom from the explorer to the camera is sampled against the relief, so a bank rising behind the explorer pushes the camera up and over instead of burying it in the soil (`cameraFloorClearance`, `cameraClearanceSamples`).
 - **First person** — the lens rides at eye height (`firstPersonEyeHeight`, 1.63 u) a hand's width in front of the chest (`firstPersonEyeForward`), so looking down shows the explorer's own torso and boots rather than the inside of its helmet. The helmet itself is hidden, the body turns to follow the look direction instead of the input direction, the pitch limiter is released (you can look straight up at the cupola) and a small gait-driven head bob (`firstPersonBob`) rides on the walk.
+
+## Heading compass
+
+The top-left corner of the HUD carries a compass rose (`src/ui/Compass.js`). It reads the explorer's look direction — the same `player.yaw` the camera and the map needle use — and turns it into a bearing, a turning card and a three-digit readout with the cardinal it points at.
+
+The world has no authored north/south axis, so the compass defines one and every other heading in the game follows it: **north is -Z** (the top of the minimap) and **east is +X** (its right). The view direction is `(-sin yaw, -cos yaw)`, which makes the bearing simply `-yaw`, normalised into `[0, 360)`.
+
+- **The card turns, the letters do not.** The ring is rotated by a single CSS custom property (`--heading`) written once per frame; each letter counters that rotation so it stays upright, and the fixed index at the top marks the current bearing — the letter under the index is the one the explorer is looking at.
+- **It is a readout, not an animation.** The card is only rewritten when the bearing moves by a tenth of a degree and the digits only when the rounded bearing changes, so standing still costs nothing.
+- **It belongs to the biome.** The needle, the north wedge and the cardinal take the accent colour of the sector the explorer is standing in, alongside the sigils and the cloth trim.
 
 ## World map
 
@@ -83,6 +96,7 @@ Every sector is capped by a curved hexagonal cupola that is **painted with a rea
 - **Wind** — `src/world/wind.js` injects a shared sway into the standard vertex shader. One clock drives the crowns, the grass and the ferns, so the whole forest breathes on the same gust while trunks stay planted.
 - **Mist** — **eight** stacked, drifting layers of ground fog with a soft radial falloff and no texture seam. Each layer samples the mist noise through its own phase offset and its own heading, so the stack reads as one deep volume of fog rather than eight sheets of glass; it starts just above the soil, pools in the hollows, climbs to about 16 units and fades out near the lens, so the ground underfoot stays crisp while the distance is swallowed.
 - **Light** — a dedicated green, amber and teal canopy-light rig plus a brighter canopy wash keeps the dense grove readable; the forest also receives the fullest cloud deck and the strongest sun halo.
+- **Rain** — `HEX_S` is the only sector with weather. `src/world/Rain.js` plants a seeded field of **34,000** falling streaks and **5,200** impact ripples on the same baked lattice the explorer walks on: a drop's column carries the height it will land on (so it melts into the relief it is actually above, not into a global plane), and a ripple is tilted into the slope it hits. The fall, the recycle and the ripple growth all happen in the vertex shader from one shared clock, so a whole-sector downpour costs two draw calls and a single uniform update per frame; drops and splashes fade out with the distance to the camera, so the density near the lens is what the eye reads. The floor is wetted with it — the soil and the leaf litter darken and lose their matte finish while it rains — and the field steps aside with the mist in the F3 overview. `world.setRainEnabled(false)` (or `forestRainEnabled: false` in `mapConfig`) clears the sky over the wood.
 
 ### One surface for the eye and the feet
 
@@ -94,7 +108,7 @@ The old forest floor was drawn from one formula and collided against another, so
 
 The pause menu offers resume, a view toggle and the map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
 
-Run the topology, terrain, sky, undergrowth, map overlay, map drawing, character and controller checks (46 tests) with:
+Run the topology, terrain, sky, rain, undergrowth, map overlay, map drawing, compass, character and controller checks (60 tests) with:
 
 ```bash
 npm test
