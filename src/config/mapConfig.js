@@ -270,6 +270,41 @@ export const MAP_CONFIG = Object.freeze({
   forestTerrainMaxSlopeDeg: 30,
   forestTerrainEdgeBlend: 46,
   forestTerrainSeed: 0x5eed1eaf,
+
+  // --- HEX_SE volcanic ground --------------------------------------------
+  // The southeast sector carries a large volcanic landscape baked from the
+  // same hexagonal lattice engine as the forest floor (a ForestTerrain
+  // subclass, src/world/VolcanicTerrain.js): one major elevated massif, one
+  // lower basin, fissure ridges, rocky patches and shallow depressions over
+  // broad, walkable ash plains. The rim — and a radial apron around every
+  // gate — fades back to the exact shared floor height, so the sector stays
+  // seamless with its neighbours and every entrance stays level. This step is
+  // shape only: a simple gray/dark rock material, no lava, no particles.
+  volcanicRockColor: 0x4f5157,
+  volcanicRockDarkColor: 0x26282c,
+  // 64 divisions keeps the lattice light (~15.7k vertices, ~24.6k faces —
+  // under half the forest's density) while resolving features that are tens
+  // of units across.
+  volcanicTerrainDivisions: 64,
+  volcanicTerrainAmplitude: 18,
+  volcanicTerrainEdgeBlend: 44,
+  // Same walkability guarantee as the forest: no baked face may tilt more
+  // than this, so the whole landscape is crossed on foot.
+  volcanicTerrainMaxSlopeDeg: 25,
+  volcanicTerrainRelax: 3,
+  volcanicTerrainBaseScale: 168,
+  volcanicTerrainOctaves: 4,
+  volcanicTerrainGain: 0.5,
+  volcanicTerrainLacunarity: 2.05,
+  volcanicTerrainWarp: 24,
+  volcanicTerrainSeed: 0xba5a1700,
+  // Flat approach kept clear around each portal centre: fully flat inside
+  // `inner`, relief back in full by `outer` (sector-local units).
+  volcanicGateApronInner: 19,
+  volcanicGateApronOuter: 58,
+  // The feature layout itself (cone, basin, ridges, rocks, pits) is plain
+  // data in VolcanicTerrain.js (`DEFAULT_VOLCANIC_LAYOUT`) and can be
+  // overridden per sector through `volcanicFeatures`.
   sectorColors: SECTOR_COLORS,
 });
 

@@ -120,7 +120,20 @@ The old forest floor was drawn from one formula and collided against another, so
 
 The pause menu offers resume, a view toggle and the map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
 
-Run the topology, terrain, sky, rain, undergrowth, birds, map overlay, map drawing, compass, character and controller checks (72 tests) with:
+## HEX_SE — the volcanic ground
+
+`HEX_SE` is the second sector whose flat plate is replaced by modelled ground. `src/world/VolcanicTerrain.js` bakes a large volcanic landscape on the same welded hexagonal lattice engine as the forest — it subclasses `ForestTerrain`, so the mesh the eye sees and the surface the feet stand on are again one baked model, its rim pinned to the shared floor height and its faces slope-limited at bake time.
+
+- **Massif** — one major elevated volcanic region: a broad convex cone with an irregular skirt and a shallow summit crater (the shape only; nothing lives inside it yet).
+- **Basin** — one lower basin-like region: a flat-floored bowl sitting about ten units below the plains that ring it.
+- **Ridges** — elevated volcanic ridges as two fissure zones of ridged multifractal noise, so the crests wander like dyke swarms off the massif's flanks instead of lining up as hills.
+- **Rock and depressions** — four irregular rocky patches of coarse, crested roughness and three shallow depressions on the open plains.
+- **Plains** — broad domain-warped undulation between the features. Around seventy percent of the sector walks at under 12° and half of it stays within three units of plain level, so the landscape never turns uniformly mountainous and large areas stay comfortable to cross.
+- **Boundary discipline** — the relief fades to exactly the shared floor height along all six sides, and a radial apron around each of the sector's four portals (fully flat inside 19 units, relief back by 58) keeps every entrance a level stroll. Walls, gates, neighbouring sectors and the global hexagonal structure are untouched by it.
+- **Material** — a simple gray/dark basalt with a subtle per-vertex shading (pale ash on the high flats, darker rock pooling in the hollows). No lava, no textures, no particles, no atmosphere at this stage: this step establishes the terrain shape only.
+- **Budget** — 64 lattice divisions: 12,481 vertices and 24,576 triangles, under half the forest floor's density, baked in about a fifth of a second. The field is fully seeded, and the whole feature layout (cone, basin, ridge zones, rock patches, pits) is plain data in `DEFAULT_VOLCANIC_LAYOUT`, overridable through `volcanicFeatures`, so the ground can be reshaped later without touching the engine.
+
+Run the topology, terrain, sky, rain, undergrowth, birds, map overlay, map drawing, compass, character and controller checks (82 tests) with:
 
 ```bash
 npm test
