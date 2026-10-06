@@ -6,6 +6,7 @@ import { PlayerController } from './player/PlayerController.js';
 import { resolveSunDirection } from './world/SkyDome.js';
 import { Minimap } from './ui/Minimap.js';
 import { MapOverlay } from './ui/MapOverlay.js';
+import { Compass } from './ui/Compass.js';
 
 const viewport = document.querySelector('#viewport');
 const enterButton = document.querySelector('#enter-world');
@@ -22,6 +23,11 @@ const minimapClose = document.querySelector('#minimap-close');
 const viewState = document.querySelector('#view-state');
 const viewStateLabel = document.querySelector('#view-state-label');
 const viewToggleButton = document.querySelector('#menu-view');
+const compassRoot = document.querySelector('#compass');
+const compassCard = document.querySelector('#compass-card');
+const compassLetters = document.querySelector('#compass-letters');
+const compassHeading = document.querySelector('#compass-heading');
+const compassCardinal = document.querySelector('#compass-cardinal');
 
 const scene = new THREE.Scene();
 // The same sun paints every cupola, lights the world and casts the key light,
@@ -71,6 +77,17 @@ const player = new PlayerController(camera, renderer.domElement, world, PLAYER_C
 // forest) and wears the palette of whichever sector it is standing in.
 player.setWind(world.windUniforms);
 player.setRendererEnvironment(renderer, MAP_CONFIG);
+
+// The heading compass in the top-left corner: the explorer's look direction as
+// a bearing, over the same axes the minimap uses (north is -Z, east is +X).
+const compass = new Compass({
+  root: compassRoot,
+  card: compassCard,
+  letters: compassLetters,
+  heading: compassHeading,
+  cardinal: compassCardinal,
+  player,
+});
 
 const overviewCamera = new THREE.OrthographicCamera(-700, 700, 700, -700, 0.1, 5000);
 overviewCamera.up.set(0, 0, -1);
@@ -167,7 +184,7 @@ function updatePrompt() {
 
   enterButton.disabled = false;
   enterLabel.textContent = hasStarted ? 'Riprendi esplorazione' : 'Click to explore';
-  promptNote.textContent = 'Mouse orbita · V cambia vista · M mappa · Shift scatto · Esc menù';
+  promptNote.textContent = 'Mouse orbita · Spazio salta · V cambia vista · M mappa · Shift scatto · Esc menù';
 }
 
 player.onLockChange = (locked) => {
@@ -304,11 +321,14 @@ function updateSectorDisplay() {
       footerCoordinate.textContent = `· ${info.name.toUpperCase()}`;
       footerCoordinate.style.color = `#${info.accent.toString(16).padStart(6, '0')}`;
       // The explorer's sigils, thruster glow and cloth trim take on the
-      // accent of the sector they are standing in.
+      // accent of the sector they are standing in, and so does the compass
+      // needle, so the HUD belongs to the biome.
       player.setAccent(info.accent);
+      compass.setAccent(info.accent);
     } else {
       footerCoordinate.textContent = '—';
       footerCoordinate.style.color = '';
+      compass.setAccent(0xc7ddd7);
     }
   }
 }
@@ -325,6 +345,7 @@ if (import.meta.env?.DEV) {
     player,
     overviewCamera,
     sunDirection,
+    compass,
     setDebugMode,
   };
 }
@@ -344,6 +365,9 @@ function animate() {
     updateSectorDisplay();
   }
   world.updateDebugPlayer(player.position);
+  // The compass follows the look direction in every mode, including the
+  // annotated overview, so the top-left corner is never out of date.
+  compass.update();
   renderer.render(scene, debugMode ? overviewCamera : camera);
 
   // Keep the minimap marker current while the map is open, at a calm 12 Hz:

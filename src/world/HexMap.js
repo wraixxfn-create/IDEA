@@ -5,6 +5,7 @@ import { buildPineGrove } from './PineGrove.js';
 import { createHexDomeGeometry, createHexDomeRibGeometry, hexBoundaryDistanceAtAngle } from './hexGeometry.js';
 import { SkyDome, resolveSunDirection } from './SkyDome.js';
 import { buildForestFloorDetail, buildForestMist } from './ForestDetail.js';
+import { buildForestRain } from './Rain.js';
 import { createForestTerrain } from './ForestTerrain.js';
 import { createWindUniforms } from './wind.js';
 
@@ -279,6 +280,9 @@ export class HexMap {
     this.underGrowth = null;
     this.forestMist = null;
     this.mistLayers = null;
+    // HEX_S is the only sector with weather of its own (see Rain.js).
+    this.forestRain = null;
+    this.rain = null;
     // One wind clock drives the pine crowns, the grass and the ferns, so the
     // whole biome breathes together instead of in separate rhythms.
     this.windUniforms = createWindUniforms();
@@ -300,6 +304,7 @@ export class HexMap {
     );
     if (this.pineGrove) this.group.add(this.pineGrove);
     this.buildForestUnderGrowth();
+    this.buildForestWeather();
     this.buildWallsAndGates();
     this.buildDebugView();
   }
@@ -334,6 +339,41 @@ export class HexMap {
     this.forestMist = buildForestMist(sector, this.config);
     this.mistLayers = this.forestMist.group;
     this.group.add(this.forestMist.group);
+  }
+
+  /**
+   * The weather over the forest: falling rain and the ripples it raises on the
+   * floor. Rain only exists in HEX_S — the other seven sectors keep their
+   * painted skies — and it is planted on the same terrain the explorer walks
+   * on, so drops land on the relief and not on a plane.
+   */
+  buildForestWeather() {
+    const sector = this.sectorById.get('HEX_S');
+    if (!sector) return;
+
+    this.forestRain = buildForestRain(sector, this.config, {
+      heightAt: (x, z) => this.getFloorHeightAt(x, z),
+      normalAt: (x, z, target) => this.getTerrainNormalAt(x, z, target),
+    });
+    this.rain = this.forestRain;
+    this.group.add(this.forestRain.group);
+
+    // Wet ground: rain sheens the soil and the leaf litter, so the floor the
+    // explorer splashes through is a little darker and far less matte than the
+    // dry forest. Both materials are multiplied, never rebuilt: the baked
+    // vertex colours stay exactly as they were.
+    if (this.forestRain.isEnabled) {
+      const darkening = this.config.forestRainWetDarkening ?? 0.82;
+      if (this.forestSoilMaterial) {
+        this.forestSoilMaterial.roughness = this.config.forestRainWetRoughness ?? 0.72;
+        this.forestSoilMaterial.color.multiplyScalar(darkening);
+      }
+      if (this.forestLeafMaterial) {
+        this.forestLeafMaterial.roughness = this.config.forestRainWetRoughness ?? 0.72;
+        this.forestLeafMaterial.color.multiplyScalar(0.5 + darkening * 0.5);
+      }
+      this.forestRain.wetnessApplied = true;
+    }
   }
 
   buildFloors() {
@@ -1100,6 +1140,7 @@ export class HexMap {
     // clock advances so the pines and the undergrowth sway on the same gust.
     for (const sky of this.skies) sky.update(dt);
     this.forestMist?.update(dt);
+    this.forestRain?.update(dt);
     this.windUniforms.time.value += dt * (this.config.windStrength ?? 1);
 
     // The forest lights breathe very subtly, like sunlight moving through a
@@ -1225,9 +1266,20 @@ export class HexMap {
   setDebugVisible(visible) {
     this.debugGroup.visible = visible;
     // The sky cupolas would hide the whole map from the overview camera, and
-    // the mist would veil it, so both step aside while the map is annotated.
+    // the mist and the rain would veil it, so all three step aside while the
+    // map is annotated.
     if (this.domeGroup) this.domeGroup.visible = !visible;
     if (this.mistLayers) this.mistLayers.visible = !visible;
+    this.forestRain?.setVisible(!visible);
+  }
+
+  /** Weather switch for HEX_S: `false` clears the rain field entirely. */
+  setRainEnabled(enabled) {
+    if (!this.forestRain) return false;
+    const result = this.forestRain.setEnabled(enabled);
+    // The rain overlay must not undo the overview's own hiding of the field.
+    if (this.debugGroup?.visible) this.forestRain.setVisible(false);
+    return result;
   }
 
   updateDebugPlayer(position) {
