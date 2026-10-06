@@ -52,25 +52,35 @@ function forestTerrainOffset(x, z, radius, config) {
   const edgeMask = smoothStep(
     edgeDistance,
     0,
-    config.forestTerrainEdgeBlend ?? 34,
+    config.forestTerrainEdgeBlend ?? 38,
   );
   const centerMask = smoothStep(
     Math.hypot(x, z),
     0,
-    config.forestTerrainCenterBlend ?? 20,
+    config.forestTerrainCenterBlend ?? 14,
   );
+  // Multiple overlapping wave octaves create a more organic, undulating forest
+  // floor instead of a simple sinusoidal roll.
   const wave = (
-    Math.sin(x * 0.031 + z * 0.014 + 0.7) * 0.46
-    + Math.sin(x * 0.067 - z * 0.024 - 1.3) * 0.30
-    + Math.cos((x + z) * 0.043) * 0.24
+    Math.sin(x * 0.031 + z * 0.014 + 0.7) * 0.36
+    + Math.sin(x * 0.067 - z * 0.024 - 1.3) * 0.24
+    + Math.cos((x + z) * 0.043) * 0.20
+    + Math.sin(x * 0.092 + z * 0.058 + 2.1) * 0.12
+    + Math.cos(x * 0.12 - z * 0.089) * 0.08
   );
-  return (config.forestTerrainAmplitude ?? 8.5) * edgeMask * centerMask * wave;
+  // Micro-bumps add a rough leaf-litter feel at small scale.
+  const micro = (
+    Math.sin(x * 0.22 + z * 0.18) * 0.45
+    + Math.cos(x * 0.31 - z * 0.27) * 0.35
+  ) * 0.35;
+  return (config.forestTerrainAmplitude ?? 11.5) * edgeMask * centerMask * (wave + micro);
 }
 
-const SOIL_BASE_TINT = new THREE.Color(1, 1, 1);
-const SOIL_MOSS_TINT = new THREE.Color(0.62, 1.04, 0.58);
-const SOIL_DRY_TINT = new THREE.Color(1.24, 1.06, 0.76);
-const SOIL_HUMUS_TINT = new THREE.Color(0.68, 0.66, 0.66);
+const SOIL_BASE_TINT = new THREE.Color(0.92, 0.88, 0.80);
+const SOIL_MOSS_TINT = new THREE.Color(0.42, 0.78, 0.38);
+const SOIL_DRY_TINT = new THREE.Color(1.08, 0.92, 0.62);
+const SOIL_HUMUS_TINT = new THREE.Color(0.42, 0.38, 0.30);
+const SOIL_SHADOW_TINT = new THREE.Color(0.28, 0.32, 0.24);
 const soilScratch = new THREE.Color();
 
 /**
@@ -93,16 +103,25 @@ function forestSoilTintAt(x, z, height) {
   const dryAmount = THREE.MathUtils.smoothstep(dryness, 0.08, 0.78);
   const hollowAmount = THREE.MathUtils.smoothstep(-height, 0.6, 5.5);
 
+  // An additional micro-noise creates tiny dark patches under imaginary
+  // canopy gaps, which is what makes a real forest floor look patchy.
+  const shadowNoise = (
+    Math.sin(x * 0.14 + z * 0.11 + 3.7) * Math.cos(x * 0.09 - z * 0.16)
+    + 0.4 * Math.sin((x - z) * 0.19 + 1.2)
+  ) / 1.4;
+  const shadowAmount = THREE.MathUtils.smoothstep(shadowNoise, -0.1, 0.6);
+
   soilScratch.copy(SOIL_BASE_TINT);
   soilScratch.lerp(SOIL_MOSS_TINT, mossAmount * 0.85);
   soilScratch.lerp(SOIL_DRY_TINT, dryAmount * 0.5);
-  soilScratch.lerp(SOIL_HUMUS_TINT, hollowAmount * 0.4);
+  soilScratch.lerp(SOIL_HUMUS_TINT, hollowAmount * 0.5);
+  soilScratch.lerp(SOIL_SHADOW_TINT, shadowAmount * 0.28);
   return soilScratch;
 }
 
 function createForestTerrainGeometry(radius, config) {
-  const radialSegments = 24;
-  const ringCount = 15;
+  const radialSegments = 32;
+  const ringCount = 20;
   const sampleCount = radialSegments * 6;
   const positions = [0, forestTerrainOffset(0, 0, radius, config), 0];
   const colors = [];
@@ -298,7 +317,6 @@ export class HexMap {
       vertexColors: true,
       roughness: 0.98,
       metalness: 0,
-      flatShading: true,
     });
     this.forestSoilBorderMaterial = new THREE.MeshStandardMaterial({
       color: config.forestSoilDarkColor ?? 0x35251d,
@@ -601,27 +619,31 @@ export class HexMap {
     group.userData.biome = 'forest-canopy-light';
     this.group.add(group);
 
-    // A brighter canopy wash keeps the dense grove from going muddy: the
-    // green-tinted sky colour reads as light filtered through the needles.
-    const hemisphere = new THREE.HemisphereLight(0xd6f7e2, 0x3a2c1e, 0.78);
+    // A much dimmer, green-shifted hemisphere wash simulates light filtered
+    // through a dense conifer canopy. The ground bounce is kept very dark so
+    // the forest floor reads as shadowed earth rather than as a lit plane.
+    const hemisphere = new THREE.HemisphereLight(0x5a8a6a, 0x1a1410, 0.52);
     hemisphere.name = 'HEX_S_ForestHemisphere';
     hemisphere.position.set(sector.center.x, this.config.floorHeight + 65, sector.center.z);
     hemisphere.userData.sectorId = sector.id;
     group.add(hemisphere);
 
-    const lightColors = this.config.forestLightColors ?? [0x9bf2bf, 0xffc477, 0x70d8c9];
+    // Warm, low-intensity point lights scattered through the canopy read as
+    // sunlight breaking through gaps in the foliage. Each is deliberately
+    // small and soft, so the forest feels dim with occasional warm pools.
+    const lightColors = this.config.forestLightColors ?? [0xd4c98a, 0xf5d6a0, 0xa8c490];
     const placements = [
-      { x: -92, y: 28, z: 58, color: lightColors[0], intensity: 1.05 },
-      { x: 86, y: 34, z: 76, color: lightColors[1], intensity: 0.92 },
-      { x: 14, y: 23, z: -74, color: lightColors[2], intensity: 0.82 },
+      { x: -82, y: 42, z: 48, color: lightColors[0], intensity: 0.55 },
+      { x: 76, y: 48, z: 68, color: lightColors[1], intensity: 0.48 },
+      { x: 8, y: 35, z: -68, color: lightColors[2], intensity: 0.42 },
     ];
     this.forestPointLights = [];
     for (const placement of placements) {
       const light = new THREE.PointLight(
         placement.color,
-        (this.config.forestLightIntensity ?? 1.9) * placement.intensity,
-        270,
-        1.55,
+        (this.config.forestLightIntensity ?? 0.52) * placement.intensity,
+        190,
+        2.2,
       );
       light.name = `HEX_S_ForestLight_${this.forestPointLights.length}`;
       light.position.set(
@@ -635,6 +657,13 @@ export class HexMap {
       group.add(light);
       this.forestPointLights.push(light);
     }
+
+    // A subtle ambient light that adds a tiny bit of fill to the darkest
+    // corners, preventing the forest from going fully black while keeping
+    // the overall dim, enclosed feel intact.
+    const fillLight = new THREE.AmbientLight(0x2a3d2e, 0.18);
+    fillLight.name = 'HEX_S_ForestFill';
+    group.add(fillLight);
 
     this.forestLighting = group;
     this.hexSLights = group;
@@ -1180,13 +1209,13 @@ export class HexMap {
     this.windUniforms.time.value += dt * (this.config.windStrength ?? 1);
 
     // The forest lights breathe very subtly, like sunlight moving through a
-    // canopy. This is deliberately restrained so the changed HEX_S lighting
-    // feels atmospheric rather than like a flashing effect.
+    // canopy as the wind stirs the branches. The modulation is kept extremely
+    // gentle so the forest feels alive without any visible flashing.
     this.forestLightTime += dt;
     for (const light of this.forestPointLights ?? []) {
       const baseIntensity = light.userData.baseIntensity ?? light.intensity;
       const phase = light.userData.phase ?? 0;
-      light.intensity = baseIntensity * (0.91 + Math.sin(this.forestLightTime * 0.8 + phase) * 0.06);
+      light.intensity = baseIntensity * (0.94 + Math.sin(this.forestLightTime * 0.5 + phase) * 0.04);
     }
   }
 

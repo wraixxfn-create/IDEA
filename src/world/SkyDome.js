@@ -183,6 +183,10 @@ export function cloudThresholdFor(coverage, softnessHint = 0.075) {
 /**
  * Build the sky palette of one sector: a realistic daytime gradient nudged
  * towards the sector's own accent so every cupola keeps its identity.
+ *
+ * For HEX_S (the forest biome) the palette is shifted much harder: the zenith
+ * goes dark green, the horizon fades to a muted canopy, and the cloud deck is
+ * pulled back to read as patches of sky seen through gaps in the foliage.
  */
 export function createSkyPalette(sector, config = MAP_CONFIG) {
   const info = getSectorInfo(sector.id, sector.order);
@@ -192,9 +196,23 @@ export function createSkyPalette(sector, config = MAP_CONFIG) {
   const pastel = accent.clone().lerp(WHITE, 0.45);
   const deep = accent.clone().lerp(WHITE, 0.10).multiplyScalar(0.72);
 
-  const zenith = new THREE.Color(config.skyZenithColor ?? 0x2a6fc0).lerp(deep, strength);
-  const horizon = new THREE.Color(config.skyHorizonColor ?? 0xa9cfe4).lerp(pastel, strength * 0.9);
-  const haze = new THREE.Color(config.skyHazeColor ?? 0xe6eff3).lerp(pastel, strength * 0.75);
+  let zenith, horizon, haze;
+  if (isForest) {
+    // Inside a forest the sky is heavily filtered by the canopy above. The
+    // zenith becomes a dark, green-shifted tone while the horizon reads as
+    // the underside of branches rather than as open air.
+    const canopyDeep = new THREE.Color(0x1a3a28).lerp(deep, 0.18);
+    const canopyMid = new THREE.Color(0x3a5a42).lerp(pastel, 0.08);
+    const canopyBright = new THREE.Color(0x5a7a58).lerp(pastel, 0.12);
+    zenith = new THREE.Color(config.skyZenithColor ?? 0x2a6fc0).lerp(canopyDeep, 0.72);
+    horizon = new THREE.Color(config.skyHorizonColor ?? 0xa9cfe4).lerp(canopyMid, 0.55);
+    haze = new THREE.Color(config.skyHazeColor ?? 0xe6eff3).lerp(canopyBright, 0.40);
+  } else {
+    zenith = new THREE.Color(config.skyZenithColor ?? 0x2a6fc0).lerp(deep, strength);
+    horizon = new THREE.Color(config.skyHorizonColor ?? 0xa9cfe4).lerp(pastel, strength * 0.9);
+    haze = new THREE.Color(config.skyHazeColor ?? 0xe6eff3).lerp(pastel, strength * 0.75);
+  }
+
   const cloudLight = new THREE.Color(config.cloudLightColor ?? 0xfffaf1).lerp(pastel, 0.08);
   const cloudShadow = new THREE.Color(config.cloudShadowColor ?? 0xa9bfd0).lerp(deep, 0.16);
 
@@ -399,10 +417,14 @@ export class SkyDome {
     this.shell.userData.collidable = false;
     this.group.add(this.shell);
 
+    // In the forest the ribs read as branches rather than architectural
+    // framework, so they use a darker, more muted colour.
+    const ribColor = this.palette.isForest ? (config.forestDomeRibColor ?? 0x3a5a3e) : (config.domeRibColor ?? 0xdff3ea);
+    const ribOpacity = this.palette.isForest ? (config.forestDomeRibOpacity ?? 0.42) : (config.domeRibOpacity ?? 0.34);
     this.ribMaterial = new THREE.LineBasicMaterial({
-      color: config.domeRibColor ?? 0xdff3ea,
+      color: ribColor,
       transparent: true,
-      opacity: config.domeRibOpacity ?? 0.34,
+      opacity: ribOpacity,
       depthWrite: false,
       fog: false,
     });

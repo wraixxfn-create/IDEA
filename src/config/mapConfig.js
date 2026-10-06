@@ -106,9 +106,10 @@ export const MAP_CONFIG = Object.freeze({
   cornerOverlap: 3,
   floorColor: 0xd99b26,
   // Forest-biome materials for HEX_S. The soil remains visible between the
-  // thousands of low-poly leaves scattered over the uneven ground.
-  forestSoilColor: 0x7c5a3d,
-  forestSoilDarkColor: 0x45321f,
+  // thousands of low-poly leaves scattered over the uneven ground. Darker
+  // tones sell the enclosed, canopy-shaded feel of a real woodland floor.
+  forestSoilColor: 0x3e2d1e,
+  forestSoilDarkColor: 0x2a1e14,
   forestLeafColors: Object.freeze([
     0x8a5730, 0xa06b34, 0xc08a45, 0x5d7a37, 0xb08d4a,
   ]),
@@ -163,27 +164,31 @@ export const MAP_CONFIG = Object.freeze({
   cloudMinRadiusFactor: 0.28,
 
   // HEX_S is the showcase biome: a denser cloud deck, a stronger halo and a
-  // mist layer drifting between the trunks.
-  forestCloudCount: 20,
-  forestCloudCoverage: 0.36,
-  forestCloudSoftness: 0.068,
-  forestCloudStrength: 0.95,
-  forestSunGlowStrength: 1.3,
-  forestMistColor: 0xdcecf0,
-  forestMistOpacity: 0.26,
-  forestMistLayers: 2,
-  forestMistHeight: 5.5,
-  forestMistSpacing: 4.5,
-  forestMistDriftSpeed: 0.014,
+  // mist layer drifting between the trunks. The canopy coverage is higher and
+  // the sky is heavily filtered, so the dome reads as foliage from below.
+  forestCloudCount: 14,
+  forestCloudCoverage: 0.52,
+  forestCloudSoftness: 0.055,
+  forestCloudStrength: 0.72,
+  forestSunGlowStrength: 0.55,
+  forestMistColor: 0xb8d4c2,
+  forestMistOpacity: 0.35,
+  forestMistLayers: 3,
+  forestMistHeight: 4.0,
+  forestMistSpacing: 3.5,
+  forestMistDriftSpeed: 0.018,
   // Undergrowth scattered across the seeded soil of the forest floor.
-  forestGrassCount: 1900,
-  forestShrubCount: 96,
-  forestRockCount: 62,
-  forestLogCount: 16,
-  forestMushroomCount: 70,
+  forestGrassCount: 2400,
+  forestShrubCount: 120,
+  forestRockCount: 72,
+  forestLogCount: 20,
+  forestMushroomCount: 90,
   windStrength: 1,
-  forestLightColors: Object.freeze([0x9bf2bf, 0xffc477, 0x70d8c9]),
-  forestLightIntensity: 1.9,
+  forestLightColors: Object.freeze([0xd4c98a, 0xf5d6a0, 0xa8c490]),
+  forestLightIntensity: 0.52,
+  forestTerrainAmplitude: 11.5,
+  forestTerrainEdgeBlend: 38,
+  forestTerrainCenterBlend: 14,
   sectorColors: SECTOR_COLORS,
 });
 
