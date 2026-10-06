@@ -6,6 +6,7 @@ import { createHexDomeGeometry, createHexDomeRibGeometry, hexBoundaryDistanceAtA
 import { SkyDome, resolveSunDirection } from './SkyDome.js';
 import { buildForestFloorDetail, buildForestMist } from './ForestDetail.js';
 import { buildForestRain } from './Rain.js';
+import { buildForestBirds } from './ForestBirds.js';
 import { createForestTerrain } from './ForestTerrain.js';
 import { createWindUniforms } from './wind.js';
 
@@ -283,6 +284,9 @@ export class HexMap {
     // HEX_S is the only sector with weather of its own (see Rain.js).
     this.forestRain = null;
     this.rain = null;
+    // ...and the only one with wildlife (see ForestBirds.js).
+    this.forestBirds = null;
+    this.birds = null;
     // One wind clock drives the pine crowns, the grass and the ferns, so the
     // whole biome breathes together instead of in separate rhythms.
     this.windUniforms = createWindUniforms();
@@ -305,6 +309,7 @@ export class HexMap {
     if (this.pineGrove) this.group.add(this.pineGrove);
     this.buildForestUnderGrowth();
     this.buildForestWeather();
+    this.buildBirds();
     this.buildWallsAndGates();
     this.buildDebugView();
   }
@@ -339,6 +344,25 @@ export class HexMap {
     this.forestMist = buildForestMist(sector, this.config);
     this.mistLayers = this.forestMist.group;
     this.group.add(this.forestMist.group);
+  }
+
+  /**
+   * The birds of the wood: a mixed flock of chaffinches, great tits and jays
+   * that perch in the pines, drop to the floor to feed and flush when the
+   * explorer walks into them. They stand on the same terrain and land in the
+   * same trees as everything else here, and they come and go with `HEX_S`.
+   */
+  buildBirds() {
+    const sector = this.sectorById.get('HEX_S');
+    if (!sector || this.config.forestBirdsEnabled === false) return;
+
+    this.forestBirds = buildForestBirds(sector, this.config, {
+      heightAt: (x, z) => this.getFloorHeightAt(x, z),
+      trees: this.pineGrove?.userData.treePlacements ?? [],
+      windUniforms: this.windUniforms,
+    });
+    this.birds = this.forestBirds;
+    if (this.forestBirds) this.group.add(this.forestBirds.group);
   }
 
   /**
@@ -1141,6 +1165,9 @@ export class HexMap {
     for (const sky of this.skies) sky.update(dt);
     this.forestMist?.update(dt);
     this.forestRain?.update(dt);
+    // The flock gets the explorer's own position, so a bird can decide that the
+    // thing walking towards it is worth leaving for.
+    this.forestBirds?.update(dt, playerPosition);
     this.windUniforms.time.value += dt * (this.config.windStrength ?? 1);
 
     // The forest lights breathe very subtly, like sunlight moving through a
@@ -1271,6 +1298,7 @@ export class HexMap {
     if (this.domeGroup) this.domeGroup.visible = !visible;
     if (this.mistLayers) this.mistLayers.visible = !visible;
     this.forestRain?.setVisible(!visible);
+    this.forestBirds?.setVisible(!visible);
   }
 
   /** Weather switch for HEX_S: `false` clears the rain field entirely. */
