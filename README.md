@@ -22,6 +22,18 @@ For a production build, run `npm run build`. The generated site is static and do
 - **F3** — toggle the top-down development overview and sector/gate annotations
 - **Esc** — open the pause menu and release the pointer
 
+## The explorer
+
+The third-person avatar is a fully articulated character (`src/player/CharacterRig.js`) rather than a placeholder primitive. It is built entirely from procedural geometry — no external assets — and merged into one mesh per material and per joint, so a character with ~40 modelled parts still costs about 20 draw calls.
+
+- **Built** — a hooded warden: layered plate over a dark under-suit, a visored helmet with a swept crest, pauldrons, hip guards, armoured cuisses and greaves, and a flight pack with twin thruster housings. Per-vertex ambient occlusion is baked into the plate and cloth colours, so joints and undersides stay defined without a shadow map.
+- **Skeleton** — `root → body → hips → torso → (neck → head, arms → elbows → hands, mantle + tabards)`, plus `hips → legs → knees → ankles`. The body pivot carries the lean, the turn banking and the landing squash.
+- **Animation** — a small state machine blends idle sway, a gait that scales from a walk to a full sprint, a hover and a glide flight pose, an airborne fall pose, a dash burst and a landing impact. Blends use exponential smoothing, and the gait advances with the *measured* ground speed, so the feet never skate.
+- **Cloth** — a shoulder mantle and two belt tabards are animated on the CPU (about 80 vertices each) with a shared wind clock, so the cloth gusts with the forest.
+- **Glow** — the chest and hip sigils, the visor eye-line, the thruster rings and the cloth trim all take the accent colour of the sector the explorer is standing in, and pulse with effort while running, dashing or flying.
+- **Grounding** — a soft radial contact shadow fades and spreads with altitude, and dash leaves two stretched afterimages behind.
+- **Lighting** — the armour also receives a small PMREM environment baked from the world's own sky colours, so the plate reads as metal under the painted cupolas.
+
 ## Map foundation
 
 `src/config/mapConfig.js` contains shared scale, movement, sky, and material settings. `src/world/hexGrid.js` defines the axial grid, neighbors, shared edges, and outer boundary edges. `src/world/HexMap.js` generates the floors, walls, portal architecture, animated doors, and collision geometry from that data. Sector IDs appear only in the development overview.
@@ -52,7 +64,7 @@ Every sector is capped by a curved hexagonal cupola that is **painted with a rea
 
 The pause menu offers resume and map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
 
-Run the topology, sky, undergrowth and controller checks with:
+Run the topology, sky, undergrowth, character and controller checks with:
 
 ```bash
 npm test

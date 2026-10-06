@@ -190,10 +190,23 @@ export const MAP_CONFIG = Object.freeze({
 export const PLAYER_CONFIG = Object.freeze({
   radius: 0.62,
   height: 1.8,
-  avatarWidth: 0.56,
-  avatarDepth: 0.42,
-  avatarColor: 0xf1e7d4,
-  avatarEmissive: 0x172320,
+  // The explorer avatar is a fully articulated character rig; this block is
+  // the palette it is built from (see src/player/CharacterRig.js). The sigil,
+  // thruster glow and cloth trim are retinted per sector at runtime.
+  character: Object.freeze({
+    plateColor: 0xc9d3d0,
+    plateDarkColor: 0x71828a,
+    plateShadowColor: 0x3b4a4f,
+    clothColor: 0x243136,
+    clothLightColor: 0x384b51,
+    gloveColor: 0x1a2326,
+    accentColor: 0x7ef0d8,
+    capeColor: 0x3d525b,
+    skyLiftColor: 0x27383c,
+    skyLiftIntensity: 0.62,
+    clothLiftColor: 0x1b2a2e,
+    clothLiftIntensity: 0.6,
+  }),
   walkSpeed: 10,
   dashSpeed: 42,
   dashDuration: 0.22,

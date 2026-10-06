@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CharacterRig, createCharacterEnvironment } from './CharacterRig.js';
 
 const MOVEMENT_KEYS = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight',
@@ -29,42 +30,21 @@ export class PlayerController {
     this.onFlightChange = () => {};
     this.onDashChange = () => {};
 
-    this.avatarGeometry = new THREE.SphereGeometry(1, 24, 16);
-    this.avatarMaterial = new THREE.MeshStandardMaterial({
-      color: config.avatarColor ?? 0xf1e7d4,
-      emissive: config.avatarEmissive ?? 0x172320,
-      emissiveIntensity: 0.28,
-      roughness: 0.48,
-      metalness: 0.06,
+    // The avatar is a fully articulated character rig (see CharacterRig.js).
+    // `this.avatar` points at its root so existing code and tests keep working.
+    this.characterRig = new CharacterRig({
+      ...(config.character ?? {}),
+      accentColor: config.accentColor,
     });
-    this.avatar = new THREE.Mesh(this.avatarGeometry, this.avatarMaterial);
-    this.avatar.name = 'PlayerAvatar';
-    this.avatar.scale.set(
-      config.avatarWidth ?? 0.56,
-      (config.height ?? 1.8) / 2,
-      config.avatarDepth ?? 0.42,
-    );
-    this.avatar.castShadow = false;
-    this.avatar.receiveShadow = false;
+    this.avatar = this.characterRig.root;
     world.group.add(this.avatar);
 
-    this.dashEffectRemaining = 0;
-    this.dashTrailMaterial = new THREE.MeshBasicMaterial({
-      color: 0x9cf8ea,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.dashTrail = new THREE.Mesh(this.avatarGeometry, this.dashTrailMaterial);
-    this.dashTrail.name = 'PlayerDashAfterimage';
-    this.dashTrail.scale.set(
-      (config.avatarWidth ?? 0.56) * 0.9,
-      (config.height ?? 1.8) * 0.27,
-      (config.avatarDepth ?? 0.42) * 0.9,
-    );
-    this.dashTrail.visible = false;
-    world.group.add(this.dashTrail);
+    // Animation inputs fed to the rig once per frame.
+    this.groundHeight = world.config.floorHeight ?? 0;
+    this.horizontalSpeed = 0;
+    this.yawRate = 0;
+    this.previousFacingYaw = this.facingYaw;
+    this.environmentTexture = null;
 
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
@@ -82,6 +62,26 @@ export class PlayerController {
     document.addEventListener('mousemove', this.handleMouseMove);
     document.addEventListener('pointerlockchange', this.handlePointerLockChange);
     document.addEventListener('pointerlockerror', this.handlePointerLockError);
+  }
+
+  /** Bakes a small painted sky into a PMREM environment for the armour. */
+  setRendererEnvironment(renderer, skyConfig = {}) {
+    const texture = createCharacterEnvironment(renderer, skyConfig);
+    if (!texture) return null;
+    this.environmentTexture?.dispose?.();
+    this.environmentTexture = texture;
+    this.characterRig.setEnvironment(texture);
+    return texture;
+  }
+
+  /** Shares the world's wind clock so the cloth moves with the forest. */
+  setWind(uniforms) {
+    this.characterRig.setWind(uniforms);
+  }
+
+  /** Recolours the sigils, thruster glow and cloth trim (sector theming). */
+  setAccent(color) {
+    this.characterRig.setAccent(color);
   }
 
   requestPointerLock() {
@@ -178,7 +178,6 @@ export class PlayerController {
 
     this.dashRemaining = this.config.dashDuration ?? 0.22;
     this.dashCooldownRemaining = this.config.dashCooldown ?? 0.65;
-    this.dashEffectRemaining = Math.max(0.24, this.dashRemaining);
     this.isDashing = true;
     this.onDashChange(true);
     return true;
@@ -250,7 +249,9 @@ export class PlayerController {
 
   update(deltaSeconds) {
     const dt = Math.min(deltaSeconds, 0.05);
-    this.dashEffectRemaining = Math.max(0, this.dashEffectRemaining - dt);
+    this.lastDelta = dt;
+    const startX = this.position.x;
+    const startZ = this.position.z;
 
     if (this.isLocked) {
       this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - dt);
@@ -313,6 +314,20 @@ export class PlayerController {
       }
     }
 
+    // Animation inputs for the character rig: measured ground speed (so the
+    // gait matches the real, collision-resolved movement), turn rate for the
+    // banking, and the terrain height for the contact shadow.
+    if (dt > 0) {
+      this.horizontalSpeed = Math.hypot(this.position.x - startX, this.position.z - startZ) / dt;
+      const yawDelta = Math.atan2(
+        Math.sin(this.facingYaw - this.previousFacingYaw),
+        Math.cos(this.facingYaw - this.previousFacingYaw),
+      );
+      this.yawRate = yawDelta / dt;
+    }
+    this.previousFacingYaw = this.facingYaw;
+    this.groundHeight = this.world.getFloorHeightAt(this.position.x, this.position.z);
+
     this.syncAvatar();
     this.syncCamera();
   }
@@ -338,28 +353,22 @@ export class PlayerController {
   }
 
   syncAvatar() {
-    this.avatar.position.set(
-      this.position.x,
-      this.position.y + (this.config.height ?? 1.8) / 2,
-      this.position.z,
-    );
-    this.avatar.rotation.y = this.facingYaw;
-    this.avatarMaterial.emissiveIntensity = this.isDashing ? 0.9 : 0.28;
+    const floorHeight = this.groundHeight;
+    const grounded = floorHeight === null || floorHeight === undefined
+      ? this.position.y <= (this.world.config.floorHeight ?? 0) + 1e-3
+      : this.position.y <= floorHeight + 1e-3;
 
-    if (this.dashEffectRemaining > 0) {
-      const duration = Math.max(0.24, this.config.dashDuration ?? 0.22);
-      const fade = THREE.MathUtils.clamp(this.dashEffectRemaining / duration, 0, 1);
-      this.dashTrail.visible = true;
-      this.dashTrail.position.set(
-        this.position.x - this.dashDirection.x * 0.72,
-        this.position.y + (this.config.height ?? 1.8) * 0.5,
-        this.position.z - this.dashDirection.y * 0.72,
-      );
-      this.dashTrail.rotation.y = this.facingYaw;
-      this.dashTrailMaterial.opacity = fade * 0.34;
-    } else {
-      this.dashTrail.visible = false;
-    }
+    this.characterRig.update(this.lastDelta ?? 1 / 60, {
+      position: this.position,
+      facingYaw: this.facingYaw,
+      speed: this.horizontalSpeed,
+      verticalVelocity: this.velocityY,
+      yawRate: this.yawRate,
+      isFlying: this.isFlying,
+      isDashing: this.isDashing,
+      grounded,
+      groundHeight: floorHeight,
+    });
   }
 
   syncCamera() {
@@ -391,9 +400,7 @@ export class PlayerController {
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
     document.removeEventListener('pointerlockerror', this.handlePointerLockError);
     this.world.group.remove(this.avatar);
-    this.world.group.remove(this.dashTrail);
-    this.avatarGeometry.dispose();
-    this.avatarMaterial.dispose();
-    this.dashTrailMaterial.dispose();
+    this.characterRig.dispose();
+    this.environmentTexture?.dispose?.();
   }
 }
