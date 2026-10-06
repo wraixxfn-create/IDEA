@@ -275,6 +275,83 @@ button { font: inherit; }
 
 /* Esc opens a full pause layer, rather than leaving a frozen viewport. */
 .pause-only { display: none; }
+
+/* ---- Minimap overlay -------------------------------------------------- */
+.minimap-overlay {
+  position: absolute;
+  z-index: 10;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 22px 26px 18px;
+  border: 1px solid rgba(235, 241, 239, 0.22);
+  border-radius: 6px;
+  background: rgba(10, 16, 18, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: opacity 180ms ease, visibility 180ms ease;
+  pointer-events: auto;
+}
+.minimap-overlay.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.minimap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 16px;
+}
+.minimap-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: #d0ece4;
+}
+.minimap-hint {
+  font-size: 9px;
+  color: rgba(233, 239, 238, 0.48);
+  letter-spacing: 0.04em;
+}
+.minimap-hint kbd {
+  display: inline-grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  padding: 0 4px;
+  border: 1px solid rgba(235, 241, 239, 0.25);
+  border-radius: 3px;
+  font: 9px var(--mono);
+  color: #d0ece4;
+  line-height: 1;
+  vertical-align: middle;
+}
+.minimap-overlay canvas {
+  display: block;
+  border-radius: 3px;
+}
+.minimap-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: rgba(233, 239, 238, 0.55);
+}
+.minimap-legend .legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
 .experience-prompt.is-paused {
   inset: 0;
   width: 100%;

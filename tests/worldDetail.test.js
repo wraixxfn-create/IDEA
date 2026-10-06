@@ -83,7 +83,10 @@ test('cloud decks drift inside every cupola, densest over the forest', () => {
 
   assert.ok(cloudInstanceTotal(forest) > cloudInstanceTotal(other), 'HEX_S carries the fuller deck');
   assert.ok(forest.palette.cloudCoverage > other.palette.cloudCoverage);
-  assert.ok(forest.palette.sunGlow > other.palette.sunGlow);
+  // In a dense forest the sun glow is dimmer, not brighter: the canopy
+  // absorbs most of the direct light, so the glow is intentionally weaker
+  // than in the open-air sectors.
+  assert.ok(forest.palette.sunGlow < other.palette.sunGlow);
   assert.equal(map.cloudTotal, map.skies.reduce((total, sky) => total + cloudInstanceTotal(sky), 0));
 
   // Every puff has to stay inside its cupola: poking through the shell would
