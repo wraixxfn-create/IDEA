@@ -9,6 +9,7 @@ import { buildForestRain } from './Rain.js';
 import { buildForestBirds } from './ForestBirds.js';
 import { createForestTerrain } from './ForestTerrain.js';
 import { createVolcanicTerrain } from './VolcanicTerrain.js';
+import { buildLavaPool } from './LavaPool.js';
 import { createWindUniforms } from './wind.js';
 
 function createFloorGeometry(radius) {
@@ -325,6 +326,10 @@ export class HexMap {
     // HEX_S is the only sector with weather of its own (see Rain.js).
     this.forestRain = null;
     this.rain = null;
+    // HEX_SE carries the world's only lava: one pool in the floor of its main
+    // crater (see LavaPool.js).
+    this.volcanicLava = null;
+    this.lavaPool = null;
     // ...and the only one with wildlife (see ForestBirds.js).
     this.forestBirds = null;
     this.birds = null;
@@ -339,6 +344,7 @@ export class HexMap {
     this.group.add(this.debugGroup);
 
     this.buildFloors();
+    this.buildLava();
     this.buildDomeRoofs();
     this.buildSectorLighting();
     this.pineGrove = buildPineGrove(
@@ -385,6 +391,29 @@ export class HexMap {
     this.forestMist = buildForestMist(sector, this.config);
     this.mistLayers = this.forestMist.group;
     this.group.add(this.forestMist.group);
+  }
+
+  /**
+   * The lava of HEX_SE: one pool of molten rock, laid in the floor of the
+   * crater the sector already has. The lake is a level sheet of lava whose
+   * outline is where the baked crater bowl crosses it, and the ground under it
+   * was raised onto the pool's own bed by the terrain bake, so the sheet is the
+   * surface of a real basin in the rock rather than a disc hovering over it.
+   *
+   * One mesh, one material — the reusable lava material of LavaPool.js, shared
+   * with any later lava feature — and nothing else: no second pool, no rivers,
+   * no rocks, no smoke, no particles, no light and no damage. Nothing about it
+   * animates, so nothing about it is ticked.
+   */
+  buildLava() {
+    const terrain = this.volcanicTerrain;
+    if (!terrain?.lavaPool) return;
+    this.volcanicLava = buildLavaPool(terrain, terrain.lavaPool, this.config);
+    this.lavaPool = this.volcanicLava;
+    if (!this.volcanicLava) return;
+    const sector = this.sectorById.get('HEX_SE');
+    this.volcanicLava.group.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
+    this.group.add(this.volcanicLava.group);
   }
 
   /**
@@ -1355,12 +1384,14 @@ export class HexMap {
   setDebugVisible(visible) {
     this.debugGroup.visible = visible;
     // The sky cupolas would hide the whole map from the overview camera, and
-    // the mist and the rain would veil it, so all three step aside while the
-    // map is annotated.
+    // the mist, the rain and the birds would veil it, so they all step aside
+    // while the map is annotated.
     if (this.domeGroup) this.domeGroup.visible = !visible;
     if (this.mistLayers) this.mistLayers.visible = !visible;
     this.forestRain?.setVisible(!visible);
     this.forestBirds?.setVisible(!visible);
+    // The lava stays: from above it is the clearest landmark the volcanic
+    // sector has, so the overview keeps it rather than hiding it.
   }
 
   /** Weather switch for HEX_S: `false` clears the rain field entirely. */
