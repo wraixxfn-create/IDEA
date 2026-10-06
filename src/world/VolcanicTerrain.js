@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ForestTerrain } from './ForestTerrain.js';
+import { carveVolcanicVents, planVolcanicVentLayout, ventShadeAt } from './VolcanicVents.js';
 
 /**
  * VolcanicTerrain — the ground model of HEX_SE and its collision surface.
@@ -36,6 +37,12 @@ import { ForestTerrain } from './ForestTerrain.js';
  * Gate approaches are kept clear: every portal of the sector carries a radial
  * apron that flattens the relief to the shared floor height well before the
  * doorway, so the explorer always walks into HEX_SE on level ground.
+ *
+ * The landscape is what it is before the vents arrive: `carveVolcanicVents`
+ * (src/world/VolcanicVents.js) cuts a handful of small openings into the
+ * already-baked lattice afterwards, so the crater, the basin and the ridges
+ * keep exactly the shape this module baked and the vents ride in the same
+ * surface the explorer stands on.
  */
 
 function clamp01(value) {
@@ -231,17 +238,22 @@ function volcanicLatticeConfig(config = {}) {
 /** ---- Rock shading -------------------------------------------------------
  * A simple gray/dark volcanic palette, per vertex: ash-gray plains, darker
  * rock pooling in the hollows and the basin, pale dry ash on the high flats
- * and slightly exposed scree wherever the ground tips. Deliberately subtle
- * and desaturated — this pass is only about reading the shape of the relief.
+ * and slightly exposed scree wherever the ground tips. A vent adds two more
+ * notes of its own — the throat reads darker than the ground around it and the
+ * ring of ejecta paler, warm-grey scoria — so the small openings stay legible
+ * on ground that is otherwise the same rock. Deliberately subtle and
+ * desaturated: this pass is only about reading the shape of the relief.
  */
 
 const ROCK_BASE_TINT = new THREE.Color(0.97, 0.97, 1.0);
 const ROCK_DEEP_TINT = new THREE.Color(0.56, 0.57, 0.62);
 const ROCK_ASH_TINT = new THREE.Color(1.17, 1.16, 1.13);
 const ROCK_SCREE_TINT = new THREE.Color(0.8, 0.8, 0.84);
+const VENT_THROAT_TINT = new THREE.Color(0.42, 0.43, 0.47);
+const VENT_SCORIA_TINT = new THREE.Color(1.14, 1.07, 0.97);
 const rockScratch = new THREE.Color();
 
-export function volcanicRockTintAt(x, z, height, slope = 0) {
+export function volcanicRockTintAt(x, z, height, slope = 0, ventThroat = 0, ventRim = 0) {
   const mottle = (
     Math.sin(x * 0.043 + 2.1) * Math.cos(z * 0.037 - 1.3)
     + 0.5 * Math.sin((x + z) * 0.021 + 0.6)
@@ -255,6 +267,9 @@ export function volcanicRockTintAt(x, z, height, slope = 0) {
   rockScratch.lerp(ROCK_DEEP_TINT, hollowAmount * 0.6);
   rockScratch.lerp(ROCK_ASH_TINT, ashAmount * 0.55);
   rockScratch.lerp(ROCK_SCREE_TINT, screeAmount * 0.6);
+  // A vent's throat holds the dark, and its ring of ejecta catches the light.
+  rockScratch.lerp(VENT_THROAT_TINT, clamp01(ventThroat) * 0.55);
+  rockScratch.lerp(VENT_SCORIA_TINT, clamp01(ventRim) * 0.45);
   const grain = 1 + mottle * 0.05;
   rockScratch.multiplyScalar(grain);
   return rockScratch;
@@ -292,6 +307,13 @@ export class VolcanicTerrain extends ForestTerrain {
     // converges, then re-record the heights and rebuild the geometry from the
     // same buffers. `limitSlopes` exits as soon as a pass corrects nothing.
     this.limitSlopes(96);
+    this.writeHeights();
+    // The vents are cut into the landscape the bake above produced — small
+    // seeded openings, each one authored under the sector's slope limit, and
+    // each one confined to its own footprint — so nothing the terrain has
+    // already built (the crater above all) can move.
+    this.vents = planVolcanicVentLayout(config);
+    this.ventReport = carveVolcanicVents(this, this.vents);
     this.writeHeights();
     this.geometry.dispose();
     this.geometry = this.createGeometry();
@@ -537,14 +559,22 @@ export class VolcanicTerrain extends ForestTerrain {
 
     const normals = geometry.getAttribute('normal');
     const colors = geometry.getAttribute('color');
+    // During the base constructor's placeholder bake there are no vents yet;
+    // the real bake below shades them in.
+    const vents = this.vents ?? [];
     for (let v = 0; v < this.vertexCount; v += 1) {
       const up = THREE.MathUtils.clamp(normals.getY(v), 1e-4, 1);
       const slope = Math.sqrt(Math.max(0, 1 - up * up)) / up;
+      const shade = vents.length
+        ? ventShadeAt(this.positions[v * 3], this.positions[v * 3 + 2], vents)
+        : null;
       const tint = volcanicRockTintAt(
         this.positions[v * 3],
         this.positions[v * 3 + 2],
         this.heights[v],
         slope,
+        shade?.throat ?? 0,
+        shade?.rim ?? 0,
       );
       colors.setXYZ(v, tint.r, tint.g, tint.b);
     }
@@ -555,6 +585,7 @@ export class VolcanicTerrain extends ForestTerrain {
     // During the base constructor's placeholder bake the aprons do not exist
     // yet; the real bake below overwrites the count.
     geometry.userData.gateAprons = this.gateAprons?.length ?? 0;
+    geometry.userData.vents = vents.length;
     return geometry;
   }
 }

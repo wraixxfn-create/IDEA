@@ -307,6 +307,12 @@ export const MAP_CONFIG = Object.freeze({
   // plain data in VolcanicTerrain.js (`DEFAULT_VOLCANIC_LAYOUT`) and can be
   // overridden per sector through `volcanicFeatures` — the main crater's vent,
   // rim radius, crest and depth ride in there with everything else.
+  // The small vents that are cut into that landscape afterwards are plain data
+  // too (`DEFAULT_VOLCANIC_VENTS` in src/world/VolcanicVents.js): seven seeded
+  // openings — round throats, a shallow silted dish and two narrow cracks —
+  // each one confined to its own footprint and authored under the walkable
+  // slope limit, so they reshape their own patch of ground and nothing else.
+  // `volcanicVents` replaces that list (`[]` leaves the field vent-free).
   sectorColors: SECTOR_COLORS,
 });
 
