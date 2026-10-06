@@ -29,6 +29,16 @@ export class PlayerController {
     this.onLockChange = () => {};
     this.onFlightChange = () => {};
     this.onDashChange = () => {};
+    this.onViewModeChange = () => {};
+
+    // 'third' orbits the explorer, 'first' puts the camera behind the visor.
+    this.viewMode = config.initialViewMode === 'first' ? 'first' : 'third';
+    this.eyeHeight = config.firstPersonEyeHeight ?? 1.63;
+    this.bobPhase = 0;
+    this.headBob = 0;
+    // The ground contact is tracked explicitly so the explorer can follow a
+    // slope downhill instead of leaving the terrain on every crest.
+    this.isGrounded = true;
 
     // The avatar is a fully articulated character rig (see CharacterRig.js).
     // `this.avatar` points at its root so existing code and tests keep working.
@@ -37,6 +47,7 @@ export class PlayerController {
       accentColor: config.accentColor,
     });
     this.avatar = this.characterRig.root;
+    this.characterRig.setFirstPerson(this.viewMode === 'first');
     world.group.add(this.avatar);
 
     // Animation inputs fed to the rig once per frame.
@@ -82,6 +93,39 @@ export class PlayerController {
   /** Recolours the sigils, thruster glow and cloth trim (sector theming). */
   setAccent(color) {
     this.characterRig.setAccent(color);
+  }
+
+  /** ---- View mode ------------------------------------------------------ */
+
+  get isFirstPerson() {
+    return this.viewMode === 'first';
+  }
+
+  /**
+   * Switches between the orbiting follow camera and a camera mounted behind
+   * the explorer's visor. In first person the body turns with the look
+   * direction (the head *is* the camera) and the helmet is hidden.
+   */
+  setViewMode(mode) {
+    const next = mode === 'first' ? 'first' : 'third';
+    if (next === this.viewMode) return this.viewMode;
+    this.viewMode = next;
+    this.characterRig.setFirstPerson(next === 'first');
+    if (next === 'first') {
+      // Step straight into the body: no spin while the camera changes seat.
+      this.facingYaw = this.yaw;
+      this.previousFacingYaw = this.yaw;
+      this.yawRate = 0;
+    }
+    this.headBob = 0;
+    this.syncAvatar();
+    this.syncCamera();
+    this.onViewModeChange(this.viewMode);
+    return this.viewMode;
+  }
+
+  toggleViewMode() {
+    return this.setViewMode(this.isFirstPerson ? 'third' : 'first');
   }
 
   requestPointerLock() {
@@ -185,11 +229,18 @@ export class PlayerController {
 
   getMinimumPitch() {
     const configuredMinimum = this.config.minPitch ?? (-Math.PI / 2 + 0.025);
+    // In first person the camera is the head: it can look all the way up
+    // without any risk of dipping below the ground.
+    if (this.viewMode === 'first') return configuredMinimum;
     const floorHeight = this.world.getFloorHeightAt?.(this.position.x, this.position.z)
       ?? this.world.config.floorHeight
       ?? 0;
     const targetY = this.position.y + (this.config.cameraTargetHeight ?? 1.05);
-    const minimumCameraY = floorHeight + (this.config.cameraFloorClearance ?? 0.24);
+    // The pitch limiter only has to keep the lens out of the ground; the
+    // boom sweep in `syncCamera` is what opens up the full clearance, so a
+    // smaller margin here keeps low-angle shots available.
+    const minimumCameraY = floorHeight
+      + (this.config.cameraPitchFloorClearance ?? 0.35);
     const distance = Math.max(0.001, this.cameraDistance);
     const floorPitch = Math.asin(THREE.MathUtils.clamp(
       (minimumCameraY - targetY) / distance,
@@ -257,13 +308,19 @@ export class PlayerController {
       this.dashCooldownRemaining = Math.max(0, this.dashCooldownRemaining - dt);
       const inputDirection = this.getInputDirection();
 
-      if (inputDirection.inputLength > 0) {
-        const targetFacingYaw = Math.atan2(-inputDirection.x, -inputDirection.z);
+      // In first person the body is carried by the look direction; in third
+      // person it turns towards wherever the explorer is actually running.
+      const targetFacingYaw = this.viewMode === 'first'
+        ? this.yaw
+        : (inputDirection.inputLength > 0
+          ? Math.atan2(-inputDirection.x, -inputDirection.z)
+          : null);
+      if (targetFacingYaw !== null) {
         const angleDifference = Math.atan2(
           Math.sin(targetFacingYaw - this.facingYaw),
           Math.cos(targetFacingYaw - this.facingYaw),
         );
-        this.facingYaw += angleDifference * (1 - Math.exp(-12 * dt));
+        this.facingYaw += angleDifference * (1 - Math.exp((this.viewMode === 'first' ? -24 : -12) * dt));
       }
 
       let deltaX = 0;
@@ -301,17 +358,13 @@ export class PlayerController {
         const blend = 1 - Math.exp(-response * dt);
         this.velocityY += (targetVelocity - this.velocityY) * blend;
         this.position.y += this.velocityY * dt;
+        this.isGrounded = false;
       } else {
         this.velocityY -= this.config.gravity * dt;
         this.position.y += this.velocityY * dt;
       }
 
-      const floorHeight = this.world.getFloorHeightAt(this.position.x, this.position.z);
-      if (floorHeight !== null && this.position.y <= floorHeight) {
-        this.position.y = floorHeight;
-        this.velocityY = 0;
-        if (this.isFlying) this.setFlying(false);
-      }
+      this.resolveGroundContact(Math.hypot(this.position.x - startX, this.position.z - startZ));
     }
 
     // Animation inputs for the character rig: measured ground speed (so the
@@ -327,9 +380,71 @@ export class PlayerController {
     }
     this.previousFacingYaw = this.facingYaw;
     this.groundHeight = this.world.getFloorHeightAt(this.position.x, this.position.z);
+    this.updateHeadBob(dt);
 
     this.syncAvatar();
     this.syncCamera();
+  }
+
+  /**
+   * A small vertical head bob for the first-person camera. The phase advances
+   * with the distance actually covered, so it matches the gait on any terrain
+   * and stops dead when the explorer does.
+   */
+  updateHeadBob(dt) {
+    if (this.viewMode !== 'first') {
+      this.headBob = 0;
+      return;
+    }
+    const walkSpeed = this.config.walkSpeed ?? 10;
+    const stride = THREE.MathUtils.clamp(this.horizontalSpeed / Math.max(1e-3, walkSpeed), 0, 1.3);
+    this.bobPhase += this.horizontalSpeed * dt * 0.55;
+    const moving = this.isGrounded && !this.isFlying ? stride : 0;
+    const target = Math.sin(this.bobPhase * 2) * (this.config.firstPersonBob ?? 0.042) * moving;
+    this.headBob += (target - this.headBob) * (1 - Math.exp(-11 * dt));
+  }
+
+  /**
+   * Keeps the explorer on the terrain surface.
+   *
+   * Walking *into* a rise lifts the explorer onto it; walking *off* a crest
+   * snaps back down as long as the drop is within one stride, so rolling
+   * ground is followed smoothly instead of producing a fall, a landing squash
+   * and a stutter on every bump. Anything steeper than a stride is a real
+   * drop, and gravity takes over.
+   */
+  resolveGroundContact(travelled = 0) {
+    const floorHeight = this.world.getFloorHeightAt(this.position.x, this.position.z);
+    if (floorHeight === null || floorHeight === undefined) {
+      this.isGrounded = false;
+      return;
+    }
+
+    if (this.position.y <= floorHeight) {
+      this.position.y = floorHeight;
+      this.velocityY = 0;
+      this.isGrounded = true;
+      if (this.isFlying) this.setFlying(false);
+      return;
+    }
+
+    if (this.isFlying || !this.isGrounded) {
+      this.isGrounded = false;
+      return;
+    }
+
+    const snapDistance = Math.max(
+      this.config.groundSnapDistance ?? 0.5,
+      travelled * (this.config.groundSnapSlope ?? 1.6),
+    );
+    if (this.position.y - floorHeight <= snapDistance) {
+      this.position.y = floorHeight;
+      this.velocityY = 0;
+      this.isGrounded = true;
+      return;
+    }
+
+    this.isGrounded = false;
   }
 
   moveHorizontally(deltaX, deltaZ) {
@@ -354,9 +469,10 @@ export class PlayerController {
 
   syncAvatar() {
     const floorHeight = this.groundHeight;
-    const grounded = floorHeight === null || floorHeight === undefined
-      ? this.position.y <= (this.world.config.floorHeight ?? 0) + 1e-3
-      : this.position.y <= floorHeight + 1e-3;
+    const grounded = this.isFlying ? false : (this.isGrounded || (
+      floorHeight === null || floorHeight === undefined
+        ? this.position.y <= (this.world.config.floorHeight ?? 0) + 1e-3
+        : this.position.y <= floorHeight + 1e-3));
 
     this.characterRig.update(this.lastDelta ?? 1 / 60, {
       position: this.position,
@@ -372,24 +488,65 @@ export class PlayerController {
   }
 
   syncCamera() {
-    const targetHeight = this.config.cameraTargetHeight ?? 1.05;
     this.pitch = THREE.MathUtils.clamp(
       this.pitch,
       this.getMinimumPitch(),
       this.config.maxPitch ?? (Math.PI / 2 - 0.025),
     );
+    if (this.viewMode === 'first') {
+      this.syncFirstPersonCamera();
+      return;
+    }
+
+    const targetHeight = this.config.cameraTargetHeight ?? 1.05;
     const horizontalDistance = this.cameraDistance * Math.cos(this.pitch);
     const verticalDistance = this.cameraDistance * Math.sin(this.pitch);
     const targetX = this.position.x;
     const targetY = this.position.y + targetHeight;
     const targetZ = this.position.z;
 
-    this.camera.position.set(
-      targetX + Math.sin(this.yaw) * horizontalDistance,
-      targetY + verticalDistance,
-      targetZ + Math.cos(this.yaw) * horizontalDistance,
-    );
+    const cameraX = targetX + Math.sin(this.yaw) * horizontalDistance;
+    const cameraZ = targetZ + Math.cos(this.yaw) * horizontalDistance;
+    let cameraY = targetY + verticalDistance;
+
+    // On the forest relief the boom can tunnel through a bank between the
+    // explorer and the lens, so the whole segment is tested, not just its
+    // end point: for each sample the camera is raised until the straight
+    // line target -> camera clears the ground by `cameraFloorClearance`.
+    const clearance = this.config.cameraFloorClearance ?? 0.24;
+    const samples = this.config.cameraClearanceSamples ?? 5;
+    for (let step = 1; step <= samples; step += 1) {
+      const t = step / samples;
+      const ground = this.world.getFloorHeightAt?.(
+        targetX + (cameraX - targetX) * t,
+        targetZ + (cameraZ - targetZ) * t,
+      );
+      if (ground === null || ground === undefined) continue;
+      // Hug the ground near the explorer and open up towards the lens.
+      const required = targetY + (ground + clearance * t - targetY) / t;
+      if (required > cameraY) cameraY = required;
+    }
+
+    this.camera.position.set(cameraX, cameraY, cameraZ);
     this.camera.lookAt(targetX, targetY, targetZ);
+  }
+
+  /** The camera rides behind the visor, aimed along the mouse look. */
+  syncFirstPersonCamera() {
+    // The lens sits just in front of the chest rather than inside the neck,
+    // so looking down shows the explorer's own torso and boots instead of
+    // the inside of its shoulders. The body carries it, hence `facingYaw`.
+    const reach = this.config.firstPersonEyeForward ?? 0.34;
+    const eyeX = this.position.x - Math.sin(this.facingYaw) * reach;
+    const eyeY = this.position.y + this.eyeHeight + this.headBob;
+    const eyeZ = this.position.z - Math.cos(this.facingYaw) * reach;
+    const cosPitch = Math.cos(this.pitch);
+    this.camera.position.set(eyeX, eyeY, eyeZ);
+    this.camera.lookAt(
+      eyeX - Math.sin(this.yaw) * cosPitch,
+      eyeY - Math.sin(this.pitch),
+      eyeZ - Math.cos(this.yaw) * cosPitch,
+    );
   }
 
   dispose() {

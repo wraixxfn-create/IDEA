@@ -32,6 +32,7 @@
           <div class="control-row"><span class="mouse-glyph" aria-hidden="true">↕</span><span>orbit camera</span></div>
           <div class="control-row"><kbd class="wide-key">SPACE × 2</kbd><span>toggle flight</span></div>
           <div class="control-row"><kbd class="wide-key flight-keys">SPACE / CTRL</kbd><span>rise / descend</span></div>
+          <div class="control-row"><kbd class="wide-key">V</kbd><span>1ª / 3ª persona</span></div>
           <div class="control-row"><kbd class="wide-key">M</kbd><span>mappa</span></div>
           <div class="control-row"><kbd class="wide-key">ESC</kbd><span>pause menu</span></div>
           <div class="control-row debug-control"><kbd class="wide-key">F3</kbd><span>debug overview</span></div>
@@ -46,6 +47,7 @@
             <span id="enter-label">Click to explore</span>
             <span class="enter-arrow" aria-hidden="true">→</span>
           </button>
+          <button id="menu-view" class="menu-secondary pause-only" type="button" aria-pressed="false">Vista: terza persona</button>
           <button id="menu-overview" class="menu-secondary pause-only" type="button">Panoramica della mappa <span aria-hidden="true">↗</span></button>
           <p id="prompt-note">Mouse orbits · M mappa · Esc opens menu</p>
         </div>
@@ -62,16 +64,23 @@
           <span class="debug-state-divider">/</span>
           DOUBLE SPACE TO LAND
         </div>
+        <div id="view-state" class="view-state" aria-live="polite" aria-hidden="true">
+          <span class="view-dot" aria-hidden="true"></span>
+          VISTA
+          <span class="debug-state-divider">/</span>
+          <span id="view-state-label">TERZA PERSONA</span>
+        </div>
 
         <div class="hud hud-bottom">
           <div class="footer-label"><span class="footer-rule"></span>HEXFIELD / ACTIVE PORTALS</div>
           <div class="footer-label footer-right">WALK · FLY · EXPLORE <span class="footer-coordinate">—</span></div>
         </div>
 
-        <div id="minimap-overlay" class="minimap-overlay is-hidden" aria-label="World map">
+        <div id="minimap-overlay" class="minimap-overlay is-hidden" aria-label="World map" aria-hidden="true">
           <div class="minimap-header">
             <span class="minimap-title">MAPPA</span>
             <span class="minimap-hint">premi <kbd>M</kbd> per chiudere</span>
+            <button id="minimap-close" class="minimap-close" type="button" aria-label="Chiudi la mappa">✕</button>
           </div>
           <canvas id="minimap-canvas" width="420" height="400"></canvas>
           <div class="minimap-legend" id="minimap-legend"></div>

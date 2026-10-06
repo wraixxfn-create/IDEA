@@ -1,6 +1,6 @@
 # HEXFIELD — World Foundation
 
-A browser-based Three.js exploration world built from reusable flat-top hexagonal sectors, procedural architecture, a third-person explorer, and a painted sky — complete with sun and clouds — over every sector.
+A browser-based Three.js exploration world built from reusable flat-top hexagonal sectors, procedural architecture, an explorer you can follow or look through, and a painted sky — complete with sun and clouds — over every sector.
 
 ## Run
 
@@ -13,9 +13,11 @@ For a production build, run `npm run build`. The generated site is static and do
 
 ## Controls
 
-- **W / A / S / D** — move relative to the follow camera
+- **W / A / S / D** — move relative to the camera
 - **Shift** — trigger a directional dash (short burst with a cooldown)
-- **Mouse** — orbit the third-person camera; the lower orbit limit keeps the camera above the map floor, and flight allows a wider vertical orbit
+- **Mouse** — orbit in third person, look around in first person; the follow camera keeps itself above the terrain, and flight allows a wider vertical orbit
+- **V** — switch between third and first person (also on the pause menu; the choice is remembered)
+- **M** — open the world map, and press it again to close it (**Esc** and the ✕ button close it too)
 - The follow-camera distance is fixed (scrolling does not zoom)
 - **Double-tap Space** — toggle flight; the second press lifts off
 - **Hold Space / Ctrl** — rise / descend while flying; double-tap Space again to land
@@ -33,6 +35,19 @@ The third-person avatar is a fully articulated character (`src/player/CharacterR
 - **Glow** — the chest and hip sigils, the visor eye-line, the thruster rings and the cloth trim all take the accent colour of the sector the explorer is standing in, and pulse with effort while running, dashing or flying.
 - **Grounding** — a soft radial contact shadow fades and spreads with altitude, and dash leaves two stretched afterimages behind.
 - **Lighting** — the armour also receives a small PMREM environment baked from the world's own sky colours, so the plate reads as metal under the painted cupolas.
+
+## Two views
+
+Press **V** (or use the pause-menu button) to swap the camera between the two modes at any time; the choice is kept in `localStorage`, so the world reopens in the view you left it in.
+
+- **Third person** — the orbiting follow camera. It no longer only checks the ground directly beneath the lens: the whole boom from the explorer to the camera is sampled against the relief, so a bank rising behind the explorer pushes the camera up and over instead of burying it in the soil (`cameraFloorClearance`, `cameraClearanceSamples`).
+- **First person** — the lens rides at eye height (`firstPersonEyeHeight`, 1.63 u) a hand's width in front of the chest (`firstPersonEyeForward`), so looking down shows the explorer's own torso and boots rather than the inside of its helmet. The helmet itself is hidden, the body turns to follow the look direction instead of the input direction, the pitch limiter is released (you can look straight up at the cupola) and a small gait-driven head bob (`firstPersonBob`) rides on the walk.
+
+## World map
+
+**M** opens the overview in `src/ui/Minimap.js` and **M** closes it again (so do **Esc** and the ✕ in the panel's header). Opening it releases the pointer lock and remembers whether the explorer was playing, so closing the map drops straight back into the world instead of into the pause menu.
+
+The panel draws the eight sectors, their portals and the explorer's position and heading on a 2D canvas at 12 Hz. The bitmap is resized only when the device pixel ratio actually changes — the canvas used to be multiplied by that ratio on every single frame, which within a second left the tab allocating gigapixel canvases and far too busy to answer the keypress that would have closed the map.
 
 ## Map foundation
 
@@ -55,16 +70,24 @@ Every sector is capped by a curved hexagonal cupola that is **painted with a rea
 
 `HEX_S` is the showcase sector and carries the densest treatment:
 
-- **Ground** — a seeded soil surface with a gentle interior relief that fades to the exact shared-edge height, so adjacent hexagons stay seamless. Every terrain vertex is shaded for mossy hollows, sun-bleached leaf drifts and damp humus, and a deeper layer of individual leaf litter is scattered across it.
-- **Undergrowth** — `src/world/ForestDetail.js` plants grass and fern tufts, shrubs, mossy boulders, fallen logs and mushroom clusters. Everything follows a density field, so the floor grows in drifts and clearings instead of an even sprinkle, and every instance is planted on the terrain relief and kept inside the hex.
+- **Ground** — `src/world/ForestTerrain.js` bakes a real forest floor: a hexagonal triangular lattice (96 divisions, ~28 k welded vertices, 55 k triangles) displaced by warped fractal noise, relaxed, slope-limited and faded to the exact shared-edge height, so adjacent hexagons stay seamless. Every terrain vertex is shaded for mossy hollows, sun-bleached leaf drifts, damp humus and bare scree on the steep faces, and hand-sized leaf litter is scattered over it, each leaf lying on the slope it fell on.
+- **Undergrowth** — `src/world/ForestDetail.js` plants grass and fern tufts, shrubs, mossy boulders, fallen logs and mushroom clusters. Everything follows a density field, so the floor grows in drifts and clearings instead of an even sprinkle, and every instance is planted on the terrain relief, tilted into the slope it stands on, and kept inside the hex.
 - **Pines** — `src/world/PineGrove.js` grows mature spruces and saplings with exposed roots, bark grain, hanging cones, per-tree height and needle-hue variation, and fuller needle sprays.
 - **Wind** — `src/world/wind.js` injects a shared sway into the standard vertex shader. One clock drives the crowns, the grass and the ferns, so the whole forest breathes on the same gust while trunks stay planted.
-- **Mist** — two procedural ground-mist layers drift between the trunks, with a soft radial falloff and no texture seam.
+- **Mist** — procedural ground-mist layers drift between the trunks with a soft radial falloff and no texture seam, hung low enough that the fog pools in the hollows while the crowns of the relief break through it.
 - **Light** — a dedicated green, amber and teal canopy-light rig plus a brighter canopy wash keeps the dense grove readable; the forest also receives the fullest cloud deck and the strongest sun halo.
 
-The pause menu offers resume and map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
+### One surface for the eye and the feet
 
-Run the topology, sky, undergrowth, character and controller checks with:
+The old forest floor was drawn from one formula and collided against another, so the explorer sank up to **3.8 u** into the middle of the sector and, in a quarter of its area, walked under a mesh that was drawn above it. `ForestTerrain` now owns both: the lattice is baked once, and `heightAt` / `normalAt` / `slopeAt` read the **same vertex buffer** the GPU draws, through the barycentric coordinates of the triangle the explorer is standing on.
+
+- Height lookups agree with a raycast against the rendered mesh to under **0.001 u** anywhere in the hex, and cost about 100 ns.
+- `PlayerController` follows the ground with a contact resolver that snaps to the surface while the step stays within the walkable slope, and lets go of it over a real drop, so ramps are walked and cliffs are fallen off.
+- The relief is slope-limited at bake time (24.8° steepest face), the rim is perfectly flat for the full width of every portal, and `geometry.userData` carries the resulting `heightRange` and `maxSlopeDegrees`.
+
+The pause menu offers resume, a view toggle and the map overview. **Esc** also returns from the overview to the menu; **F3** toggles the overview.
+
+Run the topology, terrain, sky, undergrowth, map, character and controller checks (40 tests) with:
 
 ```bash
 npm test

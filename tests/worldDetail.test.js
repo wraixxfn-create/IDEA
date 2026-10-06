@@ -241,5 +241,15 @@ test('the forest terrain keeps the shared edges flat and mottles the soil', () =
       assert.ok(Math.abs(y - MAP_CONFIG.floorHeight) < 1e-9, 'shared edges stay flat');
     }
   }
-  assert.equal(map.getFloorHeightAt(sector.center.x, sector.center.z), MAP_CONFIG.floorHeight);
+
+  // The relief is modelled, not flat, and it is centred on the shared floor
+  // height so HEX_S never drifts away from the sectors around it.
+  const [lowest, highest] = geometry.userData.heightRange;
+  assert.ok(highest - lowest > 6, 'the forest floor carries a real relief');
+  assert.ok(Math.abs(lowest) < MAP_CONFIG.forestTerrainAmplitude);
+  assert.ok(Math.abs(highest) < MAP_CONFIG.forestTerrainAmplitude);
+  assert.ok(
+    Math.abs(map.getFloorHeightAt(sector.center.x, sector.center.z) - MAP_CONFIG.floorHeight)
+      <= MAP_CONFIG.forestTerrainAmplitude,
+  );
 });
