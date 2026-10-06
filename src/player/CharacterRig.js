@@ -385,6 +385,7 @@ export class CharacterRig {
     this.blends = { run: 0, fly: 0, air: 0, dash: 0, land: 0, cast: 0 };
     this.impact = 0;
     this.wasGrounded = true;
+    this.firstPerson = false;
     this.ghosts = [];
     this.ghostTrail = [];
 
@@ -927,6 +928,18 @@ export class CharacterRig {
   setWind(uniforms) {
     this.windUniforms = uniforms ?? null;
     this.cloak.windUniforms = this.windUniforms;
+  }
+
+  /**
+   * First person puts the camera inside the helmet, so the head is hidden
+   * while the rest of the rig keeps animating: looking down still shows the
+   * explorer's own chest, arms and boots, and the contact shadow still grounds
+   * them on the terrain.
+   */
+  setFirstPerson(enabled) {
+    this.firstPerson = Boolean(enabled);
+    this.head.visible = !this.firstPerson;
+    return this.firstPerson;
   }
 
   setAccent(color) {

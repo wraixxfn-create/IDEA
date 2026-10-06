@@ -5,6 +5,7 @@ import { buildPineGrove } from './PineGrove.js';
 import { createHexDomeGeometry, createHexDomeRibGeometry, hexBoundaryDistanceAtAngle } from './hexGeometry.js';
 import { SkyDome, resolveSunDirection } from './SkyDome.js';
 import { buildForestFloorDetail, buildForestMist } from './ForestDetail.js';
+import { createForestTerrain } from './ForestTerrain.js';
 import { createWindUniforms } from './wind.js';
 
 function createFloorGeometry(radius) {
@@ -26,155 +27,7 @@ function createFloorGeometry(radius) {
   return geometry;
 }
 
-function smoothStep(value, start, end) {
-  if (end <= start) return value >= end ? 1 : 0;
-  const t = THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
-function distanceToHexEdge(x, z, radius) {
-  const apothem = radius * Math.sqrt(3) / 2;
-  let nearest = apothem;
-  for (let side = 0; side < 6; side += 1) {
-    const normalAngle = Math.PI / 6 + side * Math.PI / 3;
-    const projection = x * Math.cos(normalAngle) + z * Math.sin(normalAngle);
-    nearest = Math.min(nearest, apothem - projection);
-  }
-  return nearest;
-}
-
-function forestTerrainOffset(x, z, radius, config) {
-  // Keep the exact centre and all six sides at the original floor height. The
-  // first condition is also useful for the initial spawn and for old callers
-  // that use the sector centre as a canonical floor sample.
-  if (Math.hypot(x, z) < 1e-7) return 0;
-  const edgeDistance = Math.max(0, distanceToHexEdge(x, z, radius));
-  const edgeMask = smoothStep(
-    edgeDistance,
-    0,
-    config.forestTerrainEdgeBlend ?? 38,
-  );
-  const centerMask = smoothStep(
-    Math.hypot(x, z),
-    0,
-    config.forestTerrainCenterBlend ?? 14,
-  );
-  // Multiple overlapping wave octaves create a more organic, undulating forest
-  // floor instead of a simple sinusoidal roll.
-  const wave = (
-    Math.sin(x * 0.031 + z * 0.014 + 0.7) * 0.36
-    + Math.sin(x * 0.067 - z * 0.024 - 1.3) * 0.24
-    + Math.cos((x + z) * 0.043) * 0.20
-    + Math.sin(x * 0.092 + z * 0.058 + 2.1) * 0.12
-    + Math.cos(x * 0.12 - z * 0.089) * 0.08
-  );
-  // Micro-bumps add a rough leaf-litter feel at small scale.
-  const micro = (
-    Math.sin(x * 0.22 + z * 0.18) * 0.45
-    + Math.cos(x * 0.31 - z * 0.27) * 0.35
-  ) * 0.35;
-  return (config.forestTerrainAmplitude ?? 11.5) * edgeMask * centerMask * (wave + micro);
-}
-
-const SOIL_BASE_TINT = new THREE.Color(0.92, 0.88, 0.80);
-const SOIL_MOSS_TINT = new THREE.Color(0.42, 0.78, 0.38);
-const SOIL_DRY_TINT = new THREE.Color(1.08, 0.92, 0.62);
-const SOIL_HUMUS_TINT = new THREE.Color(0.42, 0.38, 0.30);
-const SOIL_SHADOW_TINT = new THREE.Color(0.28, 0.32, 0.24);
-const soilScratch = new THREE.Color();
-
-/**
- * Per-vertex soil shading for the forest floor: mossy hollows, sun-bleached
- * leaf drifts and damp humus. The result is multiplied into the shared soil
- * colour, so the biome keeps its identity while the ground stops reading as a
- * single flat brown plane.
- */
-function forestSoilTintAt(x, z, height) {
-  const patch = (
-    Math.sin(x * 0.052 + 1.7) * Math.cos(z * 0.041 - 0.9)
-    + 0.55 * Math.sin((x + z) * 0.026 + 2.4)
-    + 0.35 * Math.cos((x - z) * 0.083)
-  ) / 1.9;
-  const dryness = (
-    Math.sin(x * 0.031 - 0.4) * Math.sin(z * 0.037 + 1.1)
-    + 0.5 * Math.cos((x * 0.7 + z) * 0.045)
-  ) / 1.5;
-  const mossAmount = THREE.MathUtils.smoothstep(patch, 0.12, 0.72);
-  const dryAmount = THREE.MathUtils.smoothstep(dryness, 0.08, 0.78);
-  const hollowAmount = THREE.MathUtils.smoothstep(-height, 0.6, 5.5);
-
-  // An additional micro-noise creates tiny dark patches under imaginary
-  // canopy gaps, which is what makes a real forest floor look patchy.
-  const shadowNoise = (
-    Math.sin(x * 0.14 + z * 0.11 + 3.7) * Math.cos(x * 0.09 - z * 0.16)
-    + 0.4 * Math.sin((x - z) * 0.19 + 1.2)
-  ) / 1.4;
-  const shadowAmount = THREE.MathUtils.smoothstep(shadowNoise, -0.1, 0.6);
-
-  soilScratch.copy(SOIL_BASE_TINT);
-  soilScratch.lerp(SOIL_MOSS_TINT, mossAmount * 0.85);
-  soilScratch.lerp(SOIL_DRY_TINT, dryAmount * 0.5);
-  soilScratch.lerp(SOIL_HUMUS_TINT, hollowAmount * 0.5);
-  soilScratch.lerp(SOIL_SHADOW_TINT, shadowAmount * 0.28);
-  return soilScratch;
-}
-
-function createForestTerrainGeometry(radius, config) {
-  const radialSegments = 32;
-  const ringCount = 20;
-  const sampleCount = radialSegments * 6;
-  const positions = [0, forestTerrainOffset(0, 0, radius, config), 0];
-  const colors = [];
-  const indices = [];
-  const pushColor = (x, y, z) => {
-    const tint = forestSoilTintAt(x, z, y);
-    colors.push(tint.r, tint.g, tint.b);
-  };
-  pushColor(0, positions[1], 0);
-
-  for (let ring = 1; ring <= ringCount; ring += 1) {
-    const radialScale = ring / ringCount;
-    for (let sample = 0; sample < sampleCount; sample += 1) {
-      const angle = sample / sampleCount * Math.PI * 2;
-      const boundary = hexBoundaryDistanceAtAngle(radius, angle);
-      const x = Math.cos(angle) * boundary * radialScale;
-      const z = Math.sin(angle) * boundary * radialScale;
-      const y = forestTerrainOffset(x, z, radius, config);
-      positions.push(x, y, z);
-      pushColor(x, y, z);
-    }
-  }
-
-  for (let sample = 0; sample < sampleCount; sample += 1) {
-    const next = (sample + 1) % sampleCount;
-    // Reverse the x/z winding so the face normal points upward (+Y).
-    indices.push(0, 1 + next, 1 + sample);
-  }
-
-  for (let ring = 2; ring <= ringCount; ring += 1) {
-    const innerStart = 1 + (ring - 2) * sampleCount;
-    const outerStart = 1 + (ring - 1) * sampleCount;
-    for (let sample = 0; sample < sampleCount; sample += 1) {
-      const next = (sample + 1) % sampleCount;
-      const inner = innerStart + sample;
-      const innerNext = innerStart + next;
-      const outer = outerStart + sample;
-      const outerNext = outerStart + next;
-      indices.push(inner, outerNext, outer);
-      indices.push(inner, innerNext, outerNext);
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.name = 'ForestTerrainGeometry_HEX_S';
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
+const LEAF_UP = new THREE.Vector3(0, 1, 0);
 
 function createLeafGeometry() {
   // A small four-sided leaf with a raised central ridge. It is intentionally
@@ -198,17 +51,35 @@ function createLeafGeometry() {
   return geometry;
 }
 
-function createHexRingGeometry(innerRadius, outerRadius) {
+/**
+ * The thin border band that marks a sector's rim. `heightAt` lets the forest
+ * copy lay itself on the baked relief instead of slicing through it, so the
+ * band stays visible over every crown and hollow.
+ */
+function createHexRingGeometry(innerRadius, outerRadius, heightAt = null, segmentsPerSide = 1) {
+  const steps = Math.max(1, Math.round(segmentsPerSide));
   const innerVerts = getHexVertices(0, 0, innerRadius);
   const outerVerts = getHexVertices(0, 0, outerRadius);
   const positions = [];
   const indices = [];
-  for (let i = 0; i < 6; i += 1) {
-    positions.push(innerVerts[i].x, 0, innerVerts[i].z);
-    positions.push(outerVerts[i].x, 0, outerVerts[i].z);
+  const sample = (x, z) => (typeof heightAt === 'function' ? heightAt(x, z) : 0);
+
+  for (let side = 0; side < 6; side += 1) {
+    const nextSide = (side + 1) % 6;
+    for (let step = 0; step < steps; step += 1) {
+      const t = step / steps;
+      const ix = innerVerts[side].x + (innerVerts[nextSide].x - innerVerts[side].x) * t;
+      const iz = innerVerts[side].z + (innerVerts[nextSide].z - innerVerts[side].z) * t;
+      const ox = outerVerts[side].x + (outerVerts[nextSide].x - outerVerts[side].x) * t;
+      const oz = outerVerts[side].z + (outerVerts[nextSide].z - outerVerts[side].z) * t;
+      positions.push(ix, sample(ix, iz), iz);
+      positions.push(ox, sample(ox, oz), oz);
+    }
   }
-  for (let i = 0; i < 6; i += 1) {
-    const next = (i + 1) % 6;
+
+  const ringVertices = steps * 6;
+  for (let i = 0; i < ringVertices; i += 1) {
+    const next = (i + 1) % ringVertices;
     const i0 = i * 2;
     const o0 = i * 2 + 1;
     const i1 = next * 2;
@@ -297,8 +168,18 @@ export class HexMap {
     scene.add(this.group);
 
     this.floorGeometry = createFloorGeometry(config.hexRadius);
-    this.forestTerrainGeometry = createForestTerrainGeometry(config.hexRadius, config);
+    // HEX_S is modelled once and read by everything: the mesh the player sees,
+    // the height the player stands on and the scatter that plants the forest
+    // all come out of the same baked lattice (see ForestTerrain.js).
+    this.forestTerrain = createForestTerrain(config.hexRadius, config, 'HEX_S');
+    this.forestTerrainGeometry = this.forestTerrain.geometry;
     this.floorRingGeometry = createHexRingGeometry(config.hexRadius * 0.88, config.hexRadius * 0.905);
+    this.forestRingGeometry = createHexRingGeometry(
+      config.hexRadius * 0.88,
+      config.hexRadius * 0.905,
+      (x, z) => this.forestTerrain.heightAt(x, z) + 0.05,
+      18,
+    );
     this.leafGeometry = createLeafGeometry();
 
     this.floorMaterial = new THREE.MeshStandardMaterial({
@@ -443,6 +324,7 @@ export class HexMap {
       sector,
       config: { ...this.config, forestKeepClear: keepClear },
       floorHeightAt: (x, z) => this.getFloorHeightAt(x, z),
+      normalAt: (x, z, target) => this.getTerrainNormalAt(x, z, target),
       treePlacements: this.pineGrove?.userData.treePlacements ?? [],
       windUniforms: this.windUniforms,
     });
@@ -479,10 +361,14 @@ export class HexMap {
       floor.receiveShadow = true;
       floor.userData.sectorId = sector.id;
       floor.userData.biome = isForest ? 'forest-soil-and-leaves' : 'sector-floor';
-      floor.userData.terrain = isForest ? 'interior-undulation-edge-flat' : 'flat';
+      floor.userData.terrain = isForest ? 'baked-hex-lattice-edge-flat' : 'flat';
       if (isForest) {
-        floor.userData.terrainAmplitude = this.config.forestTerrainAmplitude ?? 8.5;
-        floor.userData.edgeBlend = this.config.forestTerrainEdgeBlend ?? 34;
+        floor.userData.terrainAmplitude = this.forestTerrain.amplitude;
+        floor.userData.edgeBlend = this.forestTerrain.edgeBlend;
+        floor.userData.divisions = this.forestTerrain.divisions;
+        floor.userData.cellSize = this.forestTerrain.cellSize;
+        floor.userData.collision = 'baked-lattice-barycentric';
+        floor.userData.maxSlopeDegrees = this.forestTerrainGeometry.userData.maxSlopeDegrees;
       }
       this.group.add(floor);
       this.sectorMeshes.set(sector.id, floor);
@@ -491,7 +377,7 @@ export class HexMap {
       // The thin border is deliberately kept at the base level. HEX_S terrain
       // fades back to that exact height before every shared edge.
       const ring = new THREE.Mesh(
-        this.floorRingGeometry,
+        isForest ? this.forestRingGeometry : this.floorRingGeometry,
         isForest ? this.forestSoilBorderMaterial : this.floorRingMaterial,
       );
       ring.name = `FloorRing_${sector.id}`;
@@ -535,6 +421,8 @@ export class HexMap {
       return state / 0x100000000;
     };
     const transform = new THREE.Object3D();
+    const litterNormal = new THREE.Vector3();
+    const litterTilt = new THREE.Quaternion();
     const colors = this.config.forestLeafColors?.length
       ? this.config.forestLeafColors
       : [0x8b5a2b, 0x6f4528, 0x4d652d];
@@ -551,14 +439,20 @@ export class HexMap {
       const worldX = sector.center.x + localX;
       const worldZ = sector.center.z + localZ;
       const floorY = this.getFloorHeightAt(worldX, worldZ) ?? this.config.floorHeight;
-      const size = 1.25 + random() * 2.15;
-      transform.position.set(worldX, floorY + 0.22 + random() * 0.06, worldZ);
+      // Leaves are read from eye height now that the first-person view
+      // exists, so they are hand sized and settle on the slope they fell on
+      // instead of hovering as flat slabs over the relief.
+      const size = 0.22 + random() * 0.3;
+      transform.position.set(worldX, floorY + 0.05 + random() * 0.05, worldZ);
       transform.rotation.set(
         (random() - 0.5) * 0.28,
         random() * Math.PI * 2,
         (random() - 0.5) * 0.28,
       );
       transform.scale.set(size * (0.72 + random() * 0.52), size, size * (0.74 + random() * 0.45));
+      this.getTerrainNormalAt(worldX, worldZ, litterNormal);
+      litterTilt.setFromUnitVectors(LEAF_UP, litterNormal);
+      transform.quaternion.premultiply(litterTilt);
       transform.updateMatrix();
       leafMesh.setMatrixAt(index, transform.matrix);
       leafMesh.setColorAt(index, new THREE.Color(colors[index % colors.length]));
@@ -1358,20 +1252,38 @@ export class HexMap {
     return null;
   }
 
+  /**
+   * Height of the walkable surface under a world point, or null outside the
+   * map. For HEX_S this reads the *same* baked lattice the terrain mesh is
+   * built from, so the collision surface and the rendered ground are the same
+   * model down to floating-point noise.
+   */
   getTerrainHeightAt(x, z) {
     const sector = this.getSectorAt(x, z);
     if (!sector) return null;
-    if (sector.id !== 'HEX_S') return this.config.floorHeight;
-    return this.config.floorHeight + forestTerrainOffset(
+    if (sector.id !== 'HEX_S' || !this.forestTerrain) return this.config.floorHeight;
+    return this.config.floorHeight + this.forestTerrain.heightAt(
       x - sector.center.x,
       z - sector.center.z,
-      this.config.hexRadius,
-      this.config,
     );
   }
 
   getFloorHeightAt(x, z) {
     return this.getTerrainHeightAt(x, z);
+  }
+
+  /** Surface normal of the ground under a world point (always unit length). */
+  getTerrainNormalAt(x, z, target = new THREE.Vector3()) {
+    const sector = this.getSectorAt(x, z);
+    if (!sector || sector.id !== 'HEX_S' || !this.forestTerrain) return target.set(0, 1, 0);
+    return this.forestTerrain.normalAt(x - sector.center.x, z - sector.center.z, target);
+  }
+
+  /** Steepness (rise over run) of the ground under a world point. */
+  getTerrainSlopeAt(x, z) {
+    const sector = this.getSectorAt(x, z);
+    if (!sector || sector.id !== 'HEX_S' || !this.forestTerrain) return 0;
+    return this.forestTerrain.slopeAt(x - sector.center.x, z - sector.center.z);
   }
 
   resolveHorizontalPosition(

@@ -4,7 +4,7 @@ import { MAP_CONFIG, PLAYER_CONFIG, getSectorInfo } from './config/mapConfig.js'
 import { HexMap } from './world/HexMap.js';
 import { PlayerController } from './player/PlayerController.js';
 import { resolveSunDirection } from './world/SkyDome.js';
-import { getHexVertices } from './world/hexGrid.js';
+import { Minimap } from './ui/Minimap.js';
 
 const viewport = document.querySelector('#viewport');
 const enterButton = document.querySelector('#enter-world');
@@ -17,6 +17,10 @@ const flightState = document.querySelector('#flight-state');
 const minimapOverlay = document.querySelector('#minimap-overlay');
 const minimapCanvas = document.querySelector('#minimap-canvas');
 const minimapLegend = document.querySelector('#minimap-legend');
+const minimapClose = document.querySelector('#minimap-close');
+const viewState = document.querySelector('#view-state');
+const viewStateLabel = document.querySelector('#view-state-label');
+const viewToggleButton = document.querySelector('#menu-view');
 
 const scene = new THREE.Scene();
 // The same sun paints every cupola, lights the world and casts the key light,
@@ -75,6 +79,42 @@ overviewCamera.lookAt(0, 0, 0);
 let debugMode = false;
 let hasStarted = false;
 let minimapOpen = false;
+// Set while the map is open if the explorer was playing, so closing the map
+// drops straight back into the world instead of into the pause menu.
+let resumeAfterMinimap = false;
+
+const VIEW_STORAGE_KEY = 'hexfield:view-mode';
+try {
+  const storedView = window.localStorage?.getItem(VIEW_STORAGE_KEY);
+  if (storedView === 'first' || storedView === 'third') player.setViewMode(storedView);
+} catch {
+  // Private browsing modes can deny storage; the default view still applies.
+}
+
+function viewLabel() {
+  return player.isFirstPerson ? 'PRIMA PERSONA' : 'TERZA PERSONA';
+}
+
+// The view chip is a flash, not a permanent HUD element: it confirms the
+// switch and then gets out of the way.
+let viewStateTimeout = null;
+
+function hideViewState() {
+  if (!viewState) return;
+  clearTimeout(viewStateTimeout);
+  viewStateTimeout = null;
+  viewState.classList.remove('is-visible');
+  viewState.setAttribute('aria-hidden', 'true');
+}
+
+function flashViewState() {
+  if (!viewState) return;
+  if (viewStateLabel) viewStateLabel.textContent = viewLabel();
+  viewState.classList.add('is-visible');
+  viewState.setAttribute('aria-hidden', 'false');
+  clearTimeout(viewStateTimeout);
+  viewStateTimeout = setTimeout(hideViewState, 2400);
+}
 
 function updatePrompt() {
   const locked = player.isLocked;
@@ -96,6 +136,14 @@ function updatePrompt() {
   flightState.classList.toggle('is-visible', showFlightState);
   flightState.setAttribute('aria-hidden', String(!showFlightState));
 
+  if (viewState && (!player.isLocked || debugMode || minimapOpen)) hideViewState();
+  if (viewToggleButton) {
+    viewToggleButton.textContent = player.isFirstPerson
+      ? 'Vista: prima persona'
+      : 'Vista: terza persona';
+    viewToggleButton.setAttribute('aria-pressed', String(player.isFirstPerson));
+  }
+
   if (debugMode) {
     enterLabel.textContent = 'Debug overview active';
     promptNote.textContent = 'Sector IDs, boundaries and open-gate locations are visible · F3 returns';
@@ -105,25 +153,41 @@ function updatePrompt() {
 
   if (minimapOpen) {
     enterLabel.textContent = 'Mappa aperta';
-    promptNote.textContent = 'Premi M per chiudere la mappa';
+    promptNote.textContent = 'Premi M o Esc per chiudere la mappa';
     enterButton.disabled = true;
     return;
   }
 
   enterButton.disabled = false;
   enterLabel.textContent = hasStarted ? 'Riprendi esplorazione' : 'Click to explore';
-  promptNote.textContent = 'Mouse orbits · M mappa · Shift dashes · Esc apre il menù';
+  promptNote.textContent = 'Mouse orbita · V cambia vista · M mappa · Shift scatto · Esc menù';
 }
 
 player.onLockChange = (locked) => {
   if (locked) hasStarted = true;
   updatePrompt();
-  if (!locked && !debugMode && hasStarted) enterButton.focus({ preventScroll: true });
+  if (!locked && !debugMode && !minimapOpen && hasStarted) {
+    enterButton.focus({ preventScroll: true });
+  }
 };
 player.onFlightChange = () => updatePrompt();
+player.onViewModeChange = (mode) => {
+  try {
+    window.localStorage?.setItem(VIEW_STORAGE_KEY, mode);
+  } catch {
+    // Storage is optional; the toggle still works for this session.
+  }
+  if (player.isLocked) flashViewState();
+  updatePrompt();
+};
 
 enterButton.addEventListener('click', () => {
   if (!debugMode) player.requestPointerLock();
+});
+
+viewToggleButton?.addEventListener('click', () => {
+  player.toggleViewMode();
+  updatePrompt();
 });
 
 function setDebugMode(enabled) {
@@ -135,144 +199,72 @@ function setDebugMode(enabled) {
 
 overviewButton.addEventListener('click', () => setDebugMode(true));
 
+// Keys are read from `event.code` first (layout independent) and from
+// `event.key` as a fallback, so the map still closes on keyboard layouts that
+// do not report a KeyM code.
+function matchesKey(event, code, key) {
+  if (event.code === code) return true;
+  return typeof event.key === 'string' && event.key.toLowerCase() === key;
+}
+
 window.addEventListener('keydown', (event) => {
-  if (event.code === 'Escape') {
+  if (event.code === 'Escape' || event.key === 'Escape') {
     // Browsers may handle Esc themselves; pointerlockchange also opens the
     // menu. Explicit handling covers debug view and already-unlocked states.
-    if (minimapOpen) toggleMinimap(false);
+    if (minimapOpen) toggleMinimap(false, { resume: false });
     if (debugMode) setDebugMode(false);
     updatePrompt();
     if (hasStarted) enterButton.focus({ preventScroll: true });
     return;
   }
-  if (event.code === 'KeyM' && !event.repeat) {
+  if (event.repeat) return;
+  if (matchesKey(event, 'KeyM', 'm')) {
     event.preventDefault();
     toggleMinimap(!minimapOpen);
     return;
   }
-  if (event.code !== 'F3' || event.repeat) return;
+  if (matchesKey(event, 'KeyV', 'v')) {
+    event.preventDefault();
+    player.toggleViewMode();
+    updatePrompt();
+    return;
+  }
+  if (event.code !== 'F3') return;
   event.preventDefault();
   setDebugMode(!debugMode);
 });
 
-function toggleMinimap(open) {
+function toggleMinimap(open, { resume = true } = {}) {
+  if (open === minimapOpen) return;
   minimapOpen = open;
   minimapOverlay.classList.toggle('is-hidden', !open);
+  minimapOverlay.setAttribute('aria-hidden', String(!open));
   if (open) {
+    resumeAfterMinimap = player.isLocked;
     renderMinimap();
     // Release pointer lock so the player can see the cursor.
     player.releasePointerLock();
+  } else if (resume && resumeAfterMinimap && !debugMode) {
+    // Closing with M goes straight back to exploring: the keypress is a user
+    // gesture, so the browser lets the pointer re-lock immediately.
+    resumeAfterMinimap = false;
+    player.requestPointerLock();
   }
   updatePrompt();
 }
 
+minimapClose?.addEventListener('click', () => toggleMinimap(false));
+
+const minimap = new Minimap({
+  canvas: minimapCanvas,
+  legend: minimapLegend,
+  world,
+  player,
+  hexRadius: MAP_CONFIG.hexRadius,
+});
+
 function renderMinimap() {
-  const canvas = minimapCanvas;
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  canvas.style.width = `${w}px`;
-  canvas.style.height = `${h}px`;
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-
-  // Compute the world-space bounding box of all hex sectors.
-  const bounds = world.bounds;
-  const worldW = bounds.maxX - bounds.minX;
-  const worldD = bounds.maxZ - bounds.minZ;
-  const margin = 30;
-  const scaleX = (w - margin * 2) / worldW;
-  const scaleZ = (h - margin * 2) / worldD;
-  const scale = Math.min(scaleX, scaleZ);
-  const offsetX = (w - worldW * scale) / 2;
-  const offsetZ = (h - worldD * scale) / 2;
-
-  const toScreen = (wx, wz) => ({
-    x: offsetX + (wx - bounds.minX) * scale,
-    y: offsetZ + (wz - bounds.minZ) * scale,
-  });
-
-  const currentSector = world.getSectorAt(player.position.x, player.position.z);
-  const playerScreen = toScreen(player.position.x, player.position.z);
-
-  // Draw each sector.
-  for (const sector of world.sectors) {
-    const info = getSectorInfo(sector.id, sector.order);
-    const vertices = getHexVertices(sector.center.x, sector.center.z, MAP_CONFIG.hexRadius);
-    const screenVerts = vertices.map((v) => toScreen(v.x, v.z));
-
-    // Fill the sector polygon.
-    ctx.beginPath();
-    ctx.moveTo(screenVerts[0].x, screenVerts[0].y);
-    for (let i = 1; i < screenVerts.length; i += 1) {
-      ctx.lineTo(screenVerts[i].x, screenVerts[i].y);
-    }
-    ctx.closePath();
-
-    const isCurrent = currentSector?.id === sector.id;
-    const baseColor = `#${info.accent.toString(16).padStart(6, '0')}`;
-    ctx.fillStyle = isCurrent
-      ? `${baseColor}38`
-      : 'rgba(22, 28, 30, 0.55)';
-    ctx.fill();
-
-    // Sector border.
-    ctx.strokeStyle = isCurrent ? baseColor : 'rgba(200, 215, 210, 0.28)';
-    ctx.lineWidth = isCurrent ? 2.2 : 1;
-    ctx.stroke();
-
-    // Sector label.
-    const center = toScreen(sector.center.x, sector.center.z);
-    ctx.fillStyle = isCurrent ? '#ffffff' : 'rgba(220, 230, 226, 0.6)';
-    ctx.font = isCurrent ? '700 11px ui-monospace, monospace' : '500 9px ui-monospace, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(sector.id, center.x, center.y - 6);
-    ctx.fillStyle = isCurrent ? 'rgba(255,255,255,0.72)' : 'rgba(200, 210, 206, 0.42)';
-    ctx.font = '500 8px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText(info.name, center.x, center.y + 8);
-  }
-
-  // Draw gate connections between sectors.
-  ctx.strokeStyle = 'rgba(235, 186, 105, 0.45)';
-  ctx.lineWidth = 1.5;
-  for (const gate of world.gates) {
-    const a = toScreen(gate.center.x, gate.center.z);
-    ctx.beginPath();
-    ctx.arc(a.x, a.y, 3, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  // Draw player position.
-  ctx.fillStyle = '#ef6456';
-  ctx.shadowColor = '#ef6456';
-  ctx.shadowBlur = 8;
-  ctx.beginPath();
-  ctx.arc(playerScreen.x, playerScreen.y, 5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // Player direction indicator.
-  const dirLen = 12;
-  const dirX = playerScreen.x - Math.sin(player.facingYaw) * dirLen;
-  const dirY = playerScreen.y - Math.cos(player.facingYaw) * dirLen;
-  ctx.strokeStyle = '#ef6456';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(playerScreen.x, playerScreen.y);
-  ctx.lineTo(dirX, dirY);
-  ctx.stroke();
-
-  // Update legend.
-  if (minimapLegend) {
-    minimapLegend.innerHTML = currentSector
-      ? `<span><span class="legend-dot" style="background:#ef6456"></span>Tu sei in <strong style="color:#${getSectorInfo(currentSector.id, currentSector.order).accent.toString(16).padStart(6, '0')}">${getSectorInfo(currentSector.id, currentSector.order).name}</strong></span>`
-      : '<span><span class="legend-dot" style="background:#ef6456"></span>Posizione sconosciuta</span>';
-  }
+  minimap.render(Math.min(window.devicePixelRatio || 1, 2));
 }
 
 function updateOverviewFrustum() {
@@ -334,6 +326,7 @@ function updateSectorDisplay() {
 // automated visual checks. It is stripped from production builds.
 if (import.meta.env?.DEV) {
   window.__hexfield = {
+    THREE,
     scene,
     camera,
     renderer,
@@ -346,6 +339,7 @@ if (import.meta.env?.DEV) {
 }
 
 const clock = new THREE.Clock();
+let minimapTimer = 0;
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
@@ -358,8 +352,15 @@ function animate() {
   world.updateDebugPlayer(player.position);
   renderer.render(scene, debugMode ? overviewCamera : camera);
 
-  // Keep the minimap player position current while it is open.
-  if (minimapOpen) renderMinimap();
+  // Keep the minimap marker current while the map is open, at a calm 12 Hz:
+  // the world behind it is paused, so there is nothing to redraw faster for.
+  if (minimapOpen) {
+    minimapTimer += delta;
+    if (minimapTimer >= 1 / 12) {
+      minimapTimer = 0;
+      renderMinimap();
+    }
+  }
 }
 
 animate();

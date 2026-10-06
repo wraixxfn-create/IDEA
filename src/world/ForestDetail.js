@@ -462,12 +462,17 @@ function clusterAround(random, origin, count, minRadius, maxRadius) {
   return placements;
 }
 
+const LAYER_UP = new THREE.Vector3(0, 1, 0);
+const IDENTITY_QUATERNION = new THREE.Quaternion();
+
 function createInstancedLayer({
   name,
   geometry,
   material,
   placements,
   floorHeightAt,
+  normalAt,
+  alignToNormal = 0,
   sector,
   config,
   transformFor,
@@ -482,6 +487,9 @@ function createInstancedLayer({
 
   const transform = new THREE.Object3D();
   const tint = new THREE.Color();
+  const groundNormal = new THREE.Vector3();
+  const alignment = new THREE.Quaternion();
+  const canAlign = alignToNormal > 0 && typeof normalAt === 'function';
   placements.forEach((placement, index) => {
     const worldX = sector.center.x + placement.x;
     const worldZ = sector.center.z + placement.z;
@@ -490,6 +498,14 @@ function createInstancedLayer({
       : config.floorHeight;
     const offset = Number.isFinite(floor) ? floor : 0;
     transformFor(transform, placement, offset);
+    if (canAlign) {
+      // Lay the instance on the slope it stands on: boulders and logs bed
+      // into the bank instead of hovering with one end in the air.
+      normalAt(worldX, worldZ, groundNormal);
+      alignment.setFromUnitVectors(LAYER_UP, groundNormal);
+      alignment.slerpQuaternions(IDENTITY_QUATERNION, alignment, alignToNormal);
+      transform.quaternion.premultiply(alignment);
+    }
     transform.updateMatrix();
     mesh.setMatrixAt(index, transform.matrix);
     const brightness = 0.86 + ((index * 37) % 29) / 100;
@@ -512,6 +528,7 @@ export function buildForestFloorDetail({
   sector,
   config,
   floorHeightAt = null,
+  normalAt = null,
   treePlacements = [],
   windUniforms = null,
 }) {
@@ -604,6 +621,8 @@ export function buildForestFloorDetail({
       material: grassMaterial,
       placements,
       floorHeightAt,
+      normalAt,
+      alignToNormal: 0.45,
       sector,
       config,
       transformFor: (transform, placement, offset) => {
@@ -641,6 +660,8 @@ export function buildForestFloorDetail({
       material: shrubMaterial,
       placements: shrubPlacements,
       floorHeightAt,
+      normalAt,
+      alignToNormal: 0.4,
       sector,
       config,
       transformFor: (transform, placement, offset) => {
@@ -670,6 +691,8 @@ export function buildForestFloorDetail({
       material: rockMaterial,
       placements: rockPlacements,
       floorHeightAt,
+      normalAt,
+      alignToNormal: 0.85,
       sector,
       config,
       transformFor: (transform, placement, offset) => {
@@ -699,6 +722,8 @@ export function buildForestFloorDetail({
       material: woodMaterial,
       placements: logPlacements,
       floorHeightAt,
+      normalAt,
+      alignToNormal: 0.9,
       sector,
       config,
       transformFor: (transform, placement, offset) => {
@@ -736,6 +761,8 @@ export function buildForestFloorDetail({
       material: woodMaterial,
       placements: mushroomPlacements,
       floorHeightAt,
+      normalAt,
+      alignToNormal: 0.6,
       sector,
       config,
       transformFor: (transform, placement, offset) => {

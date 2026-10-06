@@ -236,3 +236,101 @@ test('browser-driven pointer unlock also notifies the pause UI', () => {
   assert.equal(player.keys.size, 0);
   player.dispose();
 });
+
+test('V switches to a first-person camera behind the visor and back again', () => {
+  const player = makePlayer();
+  const modes = [];
+  player.onViewModeChange = (mode) => modes.push(mode);
+
+  assert.equal(player.isFirstPerson, false, 'the explorer starts in third person');
+  assert.equal(player.characterRig.head.visible, true);
+
+  player.yaw = 0.7;
+  player.pitch = 0.2;
+  player.setViewMode('first');
+  assert.equal(player.isFirstPerson, true);
+  assert.deepEqual(modes, ['first']);
+  assert.equal(player.characterRig.head.visible, false, 'the helmet does not fill the screen');
+  assert.equal(player.facingYaw, player.yaw, 'the body steps into the look direction');
+
+  // The camera sits at eye height on the explorer, a hand's width in front
+  // of the chest, not ten units behind them.
+  const eye = player.config.firstPersonEyeHeight;
+  const reach = player.config.firstPersonEyeForward;
+  assert.ok(reach > 0 && reach < 0.6, 'the lens leans out of the chest, not out of the sector');
+  assert.ok(Math.abs(player.camera.position.x
+    - (player.position.x - Math.sin(player.facingYaw) * reach)) < 1e-9);
+  assert.ok(Math.abs(player.camera.position.z
+    - (player.position.z - Math.cos(player.facingYaw) * reach)) < 1e-9);
+  assert.ok(Math.abs(player.camera.position.y - (player.position.y + eye)) < 1e-6);
+  assert.ok(Math.hypot(
+    player.camera.position.x - player.position.x,
+    player.camera.position.z - player.position.z,
+  ) - reach < 1e-9, 'the lens stays on the explorer, not on a boom');
+
+  // It looks exactly where the mouse points: yaw around, pitch down.
+  const look = new THREE.Vector3();
+  player.camera.getWorldDirection(look);
+  assert.ok(Math.abs(look.x - (-Math.sin(player.yaw) * Math.cos(player.pitch))) < 1e-6);
+  assert.ok(Math.abs(look.z - (-Math.cos(player.yaw) * Math.cos(player.pitch))) < 1e-6);
+  assert.ok(Math.abs(look.y - (-Math.sin(player.pitch))) < 1e-6);
+
+  // In first person the view can also look straight up: no floor clamp.
+  player.handleMouseMove({ movementX: 0, movementY: -4000 });
+  assert.ok(player.pitch < -1.4, 'the first-person view can look at the cupola');
+
+  // Walking turns the body with the camera and bobs the head a little.
+  press(player, 'KeyW');
+  let bobbed = false;
+  for (let step = 0; step < 90; step += 1) {
+    player.update(1 / 60);
+    if (Math.abs(player.headBob) > 1e-4) bobbed = true;
+  }
+  assert.ok(bobbed, 'the first-person camera bobs with the gait');
+  assert.ok(Math.abs(player.camera.position.y - (player.position.y + eye)) < 0.2);
+  release(player, 'KeyW');
+
+  player.toggleViewMode();
+  assert.equal(player.isFirstPerson, false);
+  assert.equal(player.characterRig.head.visible, true);
+  assert.equal(player.headBob, 0);
+  assert.deepEqual(modes, ['first', 'third']);
+  const distance = Math.hypot(
+    player.camera.position.x - player.position.x,
+    player.camera.position.z - player.position.z,
+  );
+  assert.ok(distance > 1, 'the follow camera pulls back out again');
+  player.dispose();
+});
+
+test('rolling ground is followed downhill, but a real drop is still a fall', () => {
+  // A ramp that falls away at 25 degrees, then ends in a cliff.
+  const slope = Math.tan(25 * Math.PI / 180);
+  const world = {
+    config: { floorHeight: 0 },
+    group: new THREE.Group(),
+    resolveHorizontalPosition: (x, z) => ({ x, z }),
+    getFloorHeightAt: (x, z) => (z < -20 ? -40 : -Math.abs(z) * slope),
+  };
+  const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
+  const player = new PlayerController(camera, {}, world, PLAYER_CONFIG);
+  player.isLocked = true;
+  press(player, 'KeyW');
+
+  // Walking forward (-Z) down the ramp: the explorer stays on the surface.
+  let airborne = 0;
+  while (player.position.z > -19) {
+    player.update(1 / 60);
+    const ground = world.getFloorHeightAt(player.position.x, player.position.z);
+    assert.ok(player.position.y >= ground - 1e-9, 'never sinks through the ramp');
+    if (player.position.y > ground + 1e-6) airborne += 1;
+  }
+  assert.equal(airborne, 0, 'the explorer sticks to the slope instead of hopping down it');
+  assert.equal(player.isGrounded, true);
+
+  // Over the edge of the cliff gravity takes back over.
+  while (player.position.z > -20.4) player.update(1 / 60);
+  assert.equal(player.isGrounded, false, 'a 40-unit drop is a fall, not a snap');
+  assert.ok(player.position.y > -40 + 1e-6, 'the explorer is still falling');
+  player.dispose();
+});

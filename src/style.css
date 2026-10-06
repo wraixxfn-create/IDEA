@@ -205,7 +205,7 @@ button { font: inherit; }
 .enter-arrow { margin-left: auto; color: rgba(241, 246, 244, 0.6); font-size: 15px; }
 .experience-prompt p { margin: 0; color: rgba(240, 244, 241, 0.64); font-size: 9px; letter-spacing: 0.03em; }
 
-.debug-state, .flight-state {
+.debug-state, .flight-state, .view-state {
   position: absolute;
   z-index: 3;
   top: 108px;
@@ -224,13 +224,21 @@ button { font: inherit; }
   transform: translate(-50%, -5px);
   transition: opacity 160ms ease, transform 160ms ease;
 }
-.debug-state.is-visible, .flight-state.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.debug-state.is-visible, .flight-state.is-visible, .view-state.is-visible { opacity: 1; transform: translate(-50%, 0); }
 .flight-state {
   top: auto;
   bottom: 58px;
   border-color: rgba(111, 223, 205, 0.38);
   color: #d8f8ef;
 }
+/* The view chip sits above the flight chip so both can show at once. */
+.view-state {
+  top: auto;
+  bottom: 94px;
+  border-color: rgba(235, 186, 105, 0.3);
+  color: #f3e6cf;
+}
+.view-dot { width: 6px; height: 6px; border-radius: 50%; background: #ebba69; box-shadow: 0 0 10px rgba(235, 186, 105, 0.6); }
 .debug-dot { width: 6px; height: 6px; border-radius: 50%; background: #ebba69; box-shadow: 0 0 10px rgba(235, 186, 105, 0.65); }
 .flight-dot { width: 6px; height: 6px; border-radius: 50%; background: #64e5cf; box-shadow: 0 0 10px rgba(100, 229, 207, 0.76); }
 .debug-state-divider { color: rgba(225, 238, 234, 0.38); }
@@ -314,7 +322,26 @@ button { font: inherit; }
   letter-spacing: 0.22em;
   color: #d0ece4;
 }
+.minimap-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(235, 241, 239, 0.22);
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(233, 239, 238, 0.72);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.minimap-close:hover { border-color: rgba(235, 241, 239, 0.6); background: rgba(233, 239, 238, 0.1); color: #f2f7f5; }
+.minimap-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 .minimap-hint {
+  margin-left: auto;
   font-size: 9px;
   color: rgba(233, 239, 238, 0.48);
   letter-spacing: 0.04em;
@@ -332,9 +359,18 @@ button { font: inherit; }
   line-height: 1;
   vertical-align: middle;
 }
+/* The viewport rule above absolutely positions every canvas it contains, so
+   the map canvas has to opt back into the panel's grid flow — otherwise it
+   floats over the header and the panel collapses behind it. */
 .minimap-overlay canvas {
+  position: static;
+  inset: auto;
   display: block;
+  width: min(420px, 74vw);
+  height: auto;
+  aspect-ratio: 21 / 20;
   border-radius: 3px;
+  background: rgba(6, 11, 13, 0.55);
 }
 .minimap-legend {
   display: flex;

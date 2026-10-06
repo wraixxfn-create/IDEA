@@ -57,7 +57,17 @@ test('map builds eight sectors, a closed perimeter and detailed animated portals
   assert.equal(map.doors[0].openAmount, 0, 'portals begin sealed until approached');
   assert.equal(map.debugGroup.visible, false);
   for (const sector of map.sectors) {
-    assert.equal(map.getFloorHeightAt(sector.center.x, sector.center.z), MAP_CONFIG.floorHeight);
+    const height = map.getFloorHeightAt(sector.center.x, sector.center.z);
+    if (sector.id === 'HEX_S') {
+      // The forest carries a modelled relief, so its centre is wherever the
+      // terrain puts it — but always within the modelled amplitude.
+      assert.ok(
+        Math.abs(height - MAP_CONFIG.floorHeight) <= MAP_CONFIG.forestTerrainAmplitude,
+        'the forest centre stays inside the modelled relief',
+      );
+    } else {
+      assert.equal(height, MAP_CONFIG.floorHeight);
+    }
   }
 });
 

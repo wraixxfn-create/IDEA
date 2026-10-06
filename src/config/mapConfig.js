@@ -113,10 +113,7 @@ export const MAP_CONFIG = Object.freeze({
   forestLeafColors: Object.freeze([
     0x8a5730, 0xa06b34, 0xc08a45, 0x5d7a37, 0xb08d4a,
   ]),
-  forestTerrainAmplitude: 8.5,
-  forestTerrainEdgeBlend: 34,
-  forestTerrainCenterBlend: 20,
-  forestLeafCount: 2600,
+  forestLeafCount: 3600,
   forestTreeCount: 52,
   wallColor: 0x545d61,
   gateFrameColor: 0x22272a,
@@ -174,8 +171,10 @@ export const MAP_CONFIG = Object.freeze({
   forestMistColor: 0xb8d4c2,
   forestMistOpacity: 0.35,
   forestMistLayers: 3,
-  forestMistHeight: 4.0,
-  forestMistSpacing: 3.5,
+  // The relief now rolls between about -11 and +7, so the mist sits low and
+  // pools in the hollows while the crowns of the banks break through it.
+  forestMistHeight: 2.4,
+  forestMistSpacing: 3.2,
   forestMistDriftSpeed: 0.018,
   // Undergrowth scattered across the seeded soil of the forest floor.
   forestGrassCount: 2400,
@@ -186,9 +185,26 @@ export const MAP_CONFIG = Object.freeze({
   windStrength: 1,
   forestLightColors: Object.freeze([0xd4c98a, 0xf5d6a0, 0xa8c490]),
   forestLightIntensity: 0.52,
-  forestTerrainAmplitude: 11.5,
-  forestTerrainEdgeBlend: 38,
-  forestTerrainCenterBlend: 14,
+
+  // --- HEX_S ground model -----------------------------------------------
+  // The forest floor is a baked triangular lattice (src/world/ForestTerrain.js).
+  // The mesh the player sees and the surface the player stands on are read
+  // from the same baked heights, so the ground can never be walked through.
+  // `divisions` is the number of cells along one hex side: 96 gives ~2.3-unit
+  // cells, about 28k vertices and 55k faces for the whole sector.
+  forestTerrainDivisions: 96,
+  forestTerrainAmplitude: 15,
+  forestTerrainBaseScale: 155,
+  forestTerrainOctaves: 5,
+  forestTerrainGain: 0.36,
+  forestTerrainLacunarity: 2.03,
+  forestTerrainWarp: 34,
+  forestTerrainRelax: 3,
+  // No rendered face may tilt more than this, so every hollow and crown of
+  // the relief stays walkable instead of trapping or launching the explorer.
+  forestTerrainMaxSlopeDeg: 30,
+  forestTerrainEdgeBlend: 46,
+  forestTerrainSeed: 0x5eed1eaf,
   sectorColors: SECTOR_COLORS,
 });
 
@@ -230,5 +246,24 @@ export const PLAYER_CONFIG = Object.freeze({
   maxPitch: Math.PI / 2 - 0.025,
   cameraDistance: 10,
   cameraTargetHeight: 1.05,
-  cameraFloorClearance: 0.24,
+  // The follow camera is lifted this far above the terrain, and the whole
+  // boom is tested against the relief, so banks behind the explorer push the
+  // lens up instead of burying it in the dirt.
+  cameraFloorClearance: 1.15,
+  cameraClearanceSamples: 5,
+  cameraPitchFloorClearance: 0.35,
+  // --- First person -------------------------------------------------------
+  // 'third' orbits the explorer, 'first' mounts the camera behind the visor.
+  // V switches between them at any time (see src/main.js).
+  initialViewMode: 'third',
+  firstPersonEyeHeight: 1.63,
+  // How far in front of the chest the first-person lens sits.
+  firstPersonEyeForward: 0.34,
+  firstPersonBob: 0.042,
+  // --- Terrain contact ----------------------------------------------------
+  // How far the explorer may be pulled back down onto a slope that rolls away
+  // underfoot before the drop counts as a real fall. The stride multiplier
+  // keeps dashes glued to the ground as well.
+  groundSnapDistance: 0.5,
+  groundSnapSlope: 1.6,
 });
