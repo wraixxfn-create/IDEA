@@ -274,12 +274,13 @@ export const MAP_CONFIG = Object.freeze({
   // --- HEX_SE volcanic ground --------------------------------------------
   // The southeast sector carries a large volcanic landscape baked from the
   // same hexagonal lattice engine as the forest floor (a ForestTerrain
-  // subclass, src/world/VolcanicTerrain.js): one major elevated massif, one
-  // lower basin, fissure ridges, rocky patches and shallow depressions over
-  // broad, walkable ash plains. The rim — and a radial apron around every
-  // gate — fades back to the exact shared floor height, so the sector stays
-  // seamless with its neighbours and every entrance stays level. This step is
-  // shape only: a simple gray/dark rock material, no lava, no particles.
+  // subclass, src/world/VolcanicTerrain.js): one major elevated massif
+  // carrying the sector's single main crater, one lower basin, fissure ridges,
+  // rocky patches and shallow depressions over broad, walkable ash plains.
+  // The rim — and a radial apron around every gate — fades back to the exact
+  // shared floor height, so the sector stays seamless with its neighbours and
+  // every entrance stays level. This step is shape only: a simple gray/dark
+  // rock material, no lava, no particles.
   volcanicRockColor: 0x4f5157,
   volcanicRockDarkColor: 0x26282c,
   // 64 divisions keeps the lattice light (~15.7k vertices, ~24.6k faces —
@@ -302,9 +303,10 @@ export const MAP_CONFIG = Object.freeze({
   // `inner`, relief back in full by `outer` (sector-local units).
   volcanicGateApronInner: 19,
   volcanicGateApronOuter: 58,
-  // The feature layout itself (cone, basin, ridges, rocks, pits) is plain
-  // data in VolcanicTerrain.js (`DEFAULT_VOLCANIC_LAYOUT`) and can be
-  // overridden per sector through `volcanicFeatures`.
+  // The feature layout itself (cone, crater, basin, ridges, rocks, pits) is
+  // plain data in VolcanicTerrain.js (`DEFAULT_VOLCANIC_LAYOUT`) and can be
+  // overridden per sector through `volcanicFeatures` — the main crater's vent,
+  // rim radius, crest and depth ride in there with everything else.
   sectorColors: SECTOR_COLORS,
 });
 

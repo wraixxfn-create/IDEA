@@ -191,12 +191,26 @@ test('the relief reads as a volcanic landscape, not as random hills', () => {
   const h = (x, z) => terrain.heightAt(x, z);
   const [minHeight, maxHeight] = terrain.geometry.userData.heightRange;
 
-  // One major elevated region: the cone summit towers over the plains and
-  // carries a shallow crater — its centre sits below its own rim.
-  const summit = h(layout.cone.x, layout.cone.z);
-  const craterRim = h(layout.cone.x + 24, layout.cone.z);
-  assert.ok(summit > 6, `the massif only reaches ${summit}`);
-  assert.ok(craterRim > summit, 'the summit is a saucer, not a spike');
+  // One major elevated region, crowned by the sector's single main crater: the
+  // high ground of the sector is the crater's own rim ring, and the vent sits
+  // deep below the crown that surrounds it.
+  const vent = h(layout.crater.x, layout.crater.z);
+  let crownTop = -Infinity;
+  let crownEdge = Infinity;
+  for (let k = 0; k < 72; k += 1) {
+    const a = (k / 72) * Math.PI * 2;
+    let bearingTop = -Infinity;
+    for (let r = layout.crater.rimRadius * 0.6; r <= layout.crater.rimRadius * 1.6; r += 1) {
+      const x = layout.crater.x + Math.cos(a) * r;
+      const z = layout.crater.z + Math.sin(a) * r;
+      if (distanceToHexEdge(x, z, RADIUS) < 10) continue;
+      bearingTop = Math.max(bearingTop, h(x, z));
+    }
+    crownTop = Math.max(crownTop, bearingTop);
+    crownEdge = Math.min(crownEdge, bearingTop);
+  }
+  assert.ok(crownTop > 10, `the massif only reaches ${crownTop}`);
+  assert.ok(crownEdge > vent + 6, `the vent (${vent}) is not below its own rim (${crownEdge})`);
   assert.ok(maxHeight >= 10, 'the elevated region dominates the sector');
 
   // One lower basin-like region: a bowl well below the surrounding plains,
@@ -274,6 +288,122 @@ test('the relief reads as a volcanic landscape, not as random hills', () => {
     nearLevel / total >= 0.42,
     `only ${((nearLevel / total) * 100).toFixed(1)}% of the sector stays near the plain level`,
   );
+});
+
+test('the crater is the sector landmark: one large, deep, irregular ring', () => {
+  const terrain = map().volcanicTerrain;
+  const crater = DEFAULT_VOLCANIC_LAYOUT.crater;
+  const h = (x, z) => terrain.heightAt(x, z);
+
+  // The layout carries exactly one crater, and the terrain really builds it.
+  assert.ok(terrain.layout.crater, 'the volcanic layout carries the main crater');
+  assert.equal(terrain.layout.crater, DEFAULT_VOLCANIC_LAYOUT.crater);
+
+  // Large — about a hundred units across the crown — and irregular: no two
+  // bearings report the same rim radius, and none of them the same crest.
+  const radii = [];
+  const crests = [];
+  const floors = [];
+  for (let k = 0; k < 240; k += 1) {
+    const a = (k / 240) * Math.PI * 2;
+    const dirX = Math.cos(a);
+    const dirZ = Math.sin(a);
+    radii.push(terrain.craterRimRadiusAt(dirX * crater.rimRadius, dirZ * crater.rimRadius, crater));
+    let crest = -Infinity;
+    for (let r = crater.rimRadius * 0.6; r <= crater.rimRadius * 1.6; r += 0.5) {
+      crest = Math.max(crest, h(crater.x + dirX * r, crater.z + dirZ * r));
+    }
+    crests.push(crest);
+    floors.push(h(crater.x + dirX * crater.rimRadius * 0.15, crater.z + dirZ * crater.rimRadius * 0.15));
+  }
+  const spread = (list) => Math.max(...list) - Math.min(...list);
+  assert.ok(Math.min(...radii) * 2 > 80, `the crown is only ${Math.min(...radii) * 2} units across`);
+  assert.ok(spread(radii) > 5, `the rim only varies by ${spread(radii).toFixed(1)} units: that is a circle`);
+  assert.ok(spread(crests) > 3, `the crown only varies by ${spread(crests).toFixed(1)} units: that is a ring wall`);
+
+  // The rim is the high ground of the sector and it is a real climb from the
+  // plains outside it — the sloped approach the eye reads from a distance.
+  assert.ok(Math.max(...crests) > 10, `the crown only reaches ${Math.max(...crests).toFixed(1)}`);
+  assert.ok(
+    Math.min(...crests) > Math.max(...floors) + 5,
+    'every bearing of the rim stands above the floor it encircles',
+  );
+
+  // Deep interior: the vent sits well below the crown all the way round, and
+  // inside the ring the ground only ever rises on the way out — one bowl, not
+  // a chain of hollows.
+  const vent = h(crater.x, crater.z);
+  const profile = [];
+  for (const u of [0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1]) {
+    let sum = 0;
+    for (let k = 0; k < 120; k += 1) {
+      const a = (k / 120) * Math.PI * 2;
+      const dirX = Math.cos(a);
+      const dirZ = Math.sin(a);
+      const rimRadius = terrain.craterRimRadiusAt(dirX * crater.rimRadius, dirZ * crater.rimRadius, crater);
+      sum += h(crater.x + dirX * rimRadius * u, crater.z + dirZ * rimRadius * u);
+    }
+    profile.push(sum / 120);
+  }
+  assert.ok(vent < Math.min(...crests) - 6, `the vent (${vent}) is not deep below its rim`);
+  assert.ok(
+    profile[profile.length - 1] - profile[0] > 8,
+    `the bowl only spans ${(profile[profile.length - 1] - profile[0]).toFixed(1)} units`,
+  );
+  for (let i = 1; i < profile.length; i += 1) {
+    assert.ok(
+      profile[i] >= profile[i - 1] - 0.35,
+      `the interior dips again on the way out (${profile[i - 1].toFixed(2)} -> ${profile[i].toFixed(2)})`,
+    );
+  }
+
+  // Integrated, not pasted on: the flank leading up to the crown climbs on
+  // nearly every bearing, because the crater is cut into the massif the sector
+  // already had rather than dropped on top of it.
+  let climbs = 0;
+  let tested = 0;
+  for (let k = 0; k < 72; k += 1) {
+    const a = (k / 72) * Math.PI * 2;
+    const dirX = Math.cos(a);
+    const dirZ = Math.sin(a);
+    const rimRadius = terrain.craterRimRadiusAt(dirX * crater.rimRadius, dirZ * crater.rimRadius, crater);
+    const outer = { x: crater.x + dirX * rimRadius * 1.5, z: crater.z + dirZ * rimRadius * 1.5 };
+    if (distanceToHexEdge(outer.x, outer.z, RADIUS) < 5) continue;
+    tested += 1;
+    const rise = h(crater.x + dirX * rimRadius, crater.z + dirZ * rimRadius) - h(outer.x, outer.z);
+    if (rise > 1.5) climbs += 1;
+  }
+  assert.ok(tested > 50, 'most bearings leave room between the crown and the sector edge');
+  assert.ok(climbs / tested > 0.8, `only ${climbs}/${tested} bearings climb towards the crown`);
+
+  // Entirely inside the sector: even the crater's widest extent — the outer
+  // flank it levels into the massif — never reaches a shared edge.
+  let closest = Infinity;
+  for (let k = 0; k < 360; k += 1) {
+    const a = (k / 360) * Math.PI * 2;
+    const dirX = Math.cos(a);
+    const dirZ = Math.sin(a);
+    const rimRadius = terrain.craterRimRadiusAt(dirX * crater.rimRadius, dirZ * crater.rimRadius, crater);
+    closest = Math.min(
+      closest,
+      distanceToHexEdge(
+        crater.x + dirX * rimRadius * crater.capOuter,
+        crater.z + dirZ * rimRadius * crater.capOuter,
+        RADIUS,
+      ),
+    );
+  }
+  assert.ok(closest > 5, `the crater reaches ${closest.toFixed(1)} units from the sector edge`);
+
+  // And it never crowds a doorway: the nearest gate apron stays far outside
+  // the crater's footprint.
+  for (const apron of terrain.gateAprons) {
+    const distance = Math.hypot(apron.x - crater.x, apron.z - crater.z);
+    assert.ok(
+      distance > crater.rimRadius * crater.capOuter + 20,
+      `the crater is only ${distance.toFixed(1)} units from the gate at (${apron.x}, ${apron.z})`,
+    );
+  }
 });
 
 test('the terrain keeps every gate approach level', () => {

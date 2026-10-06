@@ -5,10 +5,11 @@ import { ForestTerrain } from './ForestTerrain.js';
  * VolcanicTerrain — the ground model of HEX_SE and its collision surface.
  *
  * The southeast sector stops being a flat crimson plate and becomes a large
- * volcanic landscape: one major elevated massif with a shallow summit crater,
- * one lower basin, fissure ridges, scattered rocky ground, shallow depressions
- * and broad ash-field undulations between them. This step is deliberately
- * bare — no lava, no props, no particles — only the shape of the ground.
+ * volcanic landscape: one major elevated massif carrying the sector's single
+ * main crater, one lower basin, fissure ridges, scattered rocky ground, shallow
+ * depressions and broad ash-field undulations between them. This step is
+ * deliberately bare — no lava, no props, no particles — only the shape of the
+ * ground.
  *
  * The module reuses the baked hexagonal lattice engine of ForestTerrain
  * (src/world/ForestTerrain.js) instead of inventing a second ground model:
@@ -25,8 +26,9 @@ import { ForestTerrain } from './ForestTerrain.js';
  *     (or lifted into another sector) without touching the engine.
  *
  * Volcanic character comes from the composition, not from louder noise: the
- * cone is convex (steeper below the summit, easing into the plains), the
- * basin is a flat-floored bowl, the ridges are *ridged* multifractal noise —
+ * cone is convex (steeper below the summit, easing into the plains), its top is
+ * levelled into the main crater (a deep bowl ringed by a high, wandering rim),
+ * the basin is a flat-floored bowl, the ridges are *ridged* multifractal noise —
  * creases instead of blobs — and the roughness is confined to a few rocky
  * patches, so most of the sector remains open ground the player can cross
  * comfortably.
@@ -44,6 +46,30 @@ function smoothStep(value, start, end) {
   if (end <= start) return value >= end ? 1 : 0;
   const t = clamp01((value - start) / (end - start));
   return t * t * (3 - 2 * t);
+}
+
+/**
+ * A rounded ramp: 0 below `start`, 1 above `end`, a *constant* slope through
+ * the middle and a short rounded join at either end.
+ *
+ * A single smoothstep spends its whole run easing in and out, so its steepest
+ * point is 1.5x its average — far too steep for a walkable crater wall once
+ * the wall also has to be deep. This ramp keeps the middle at
+ * `1 / (1 - join)` times the average instead, which is what a real wall looks
+ * like anyway: a rounded scree apron at the bottom, a straight flank, and a
+ * rounded crest at the top.
+ */
+function roundedRamp(value, start, end, join = 0.22) {
+  if (end <= start) return value >= end ? 1 : 0;
+  const t = clamp01((value - start) / (end - start));
+  const joinFraction = Math.min(0.45, Math.max(1e-4, join));
+  const slope = 1 / (1 - joinFraction);
+  if (t < joinFraction) return (slope * t * t) / (2 * joinFraction);
+  if (t > 1 - joinFraction) {
+    const remaining = 1 - t;
+    return 1 - (slope * remaining * remaining) / (2 * joinFraction);
+  }
+  return slope * (t - joinFraction / 2);
 }
 
 /** ---- Deterministic value noise ----------------------------------------
@@ -99,11 +125,40 @@ function fbm(x, y, seed, octaves, gain, lacunarity) {
  */
 
 export const DEFAULT_VOLCANIC_LAYOUT = Object.freeze({
-  // The one major elevated region: a broad cone in the south of the sector
-  // with a shallow summit crater (the shape only — nothing inside it yet).
+  // The one major elevated region: a broad cone in the south of the sector.
+  // Its top is not a spike and not a saucer — the main crater below owns the
+  // whole summit.
   cone: Object.freeze({
-    x: 46, z: 74, radius: 96, height: 1, exponent: 1.35,
-    craterRadius: 26, craterDepth: 0.34, irregularity: 0.16,
+    x: 46, z: 74, radius: 96, height: 1, exponent: 1.35, irregularity: 0.16,
+  }),
+  // The one main crater: the landmark of HEX_SE, cut into the massif's summit
+  // as a single geological feature — a broad outer rim, a long inner wall and a
+  // deep floor, with every radius and every crest height left slightly
+  // different from its neighbours so nothing about it is a circle. Lengths are
+  // sector-local units, heights are fractions of the configured amplitude (so
+  // the whole crater scales with `volcanicTerrainAmplitude` like the rest of
+  // the layout). `u` below is always the distance from the vent as a fraction
+  // of that bearing's own rim radius.
+  crater: Object.freeze({
+    x: 38, z: 84,           // vent centre, a little off the massif's apex
+    rimRadius: 50,          // crown radius — about 100 units across
+    summitLevel: 0.462,     // level the cone's top is levelled to
+    crestHeight: 0.16,      // how far the rim crest stands above that level
+    depth: 0.6,             // how far the floor sinks below it at the vent
+    floorDish: 0.03,        // extra dish so the floor is not a plate
+    floorEdge: 0.30,        // where the floor ends and the inner wall begins (u)
+    crestInner: 0.17,       // the crown's inner flank, in u
+    crestOuter: 0.32,       // its outer flank, in u
+    capInner: 0.95,         // the cone is levelled this far out (u)…
+    capOuter: 1.35,         // …and blends back into its own flank by here
+    irregularity: 0.21,     // rim-radius wobble across the bearings
+    crestVariation: 0.20,   // crest height across the bearings (saddles, shoulders)
+    wallRoughness: 0.09,    // gullies and ledges carved into the inner wall
+    notchBearing: -2.52,    // bearing of the breach in the crown (radians)
+    notchWidth: 0.7,        // how narrow the breach is
+    notchDepth: 0.6,        // how much of the crest the breach takes away
+    join: 0.22,             // share of the wall run spent rounding base and crest
+    seedOffset: 1223,
   }),
   // The one lower basin-like region: a flat-floored bowl in the west.
   basin: Object.freeze({ x: -78, z: -22, radius: 84, depth: 0.5, irregularity: 0.12 }),
@@ -146,6 +201,7 @@ export function planVolcanicLayout(config = {}) {
   if (!override) return base;
   return {
     cone: { ...base.cone, ...(override.cone ?? {}) },
+    crater: { ...base.crater, ...(override.crater ?? {}) },
     basin: { ...base.basin, ...(override.basin ?? {}) },
     ridges: override.ridges ?? base.ridges,
     rocks: override.rocks ?? base.rocks,
@@ -287,7 +343,9 @@ export class VolcanicTerrain extends ForestTerrain {
       * fbm(wx / layout.detail.scale, wz / layout.detail.scale,
         seed + 29, layout.detail.octaves, 0.5, 2.1);
 
-    shape += this.coneAt(x, z, layout.cone);
+    const edifice = this.coneAt(x, z, layout.cone);
+    shape += edifice;
+    if (layout.crater) shape += this.craterAt(x, z, layout.crater, edifice);
     shape -= this.basinAt(x, z, layout.basin);
     for (const zone of layout.ridges) shape += this.ridgeZoneAt(x, z, zone);
     for (const patch of layout.rocks) shape += this.rockPatchAt(x, z, patch);
@@ -298,8 +356,8 @@ export class VolcanicTerrain extends ForestTerrain {
 
   /**
    * The major elevated region: an irregular cone, convex like a real volcanic
-   * edifice (steepest below the summit, easing to zero gradient on the plains)
-   * with a shallow saucer at the top — the crater's shape, and nothing more.
+   * edifice (steepest below the summit, easing to zero gradient on the plains).
+   * It carries no summit shape of its own — the crater reshapes its top.
    */
   coneAt(x, z, cone) {
     const dx = x - cone.x;
@@ -309,10 +367,102 @@ export class VolcanicTerrain extends ForestTerrain {
     const radius = cone.radius * (1 + cone.irregularity * wobble);
     const t = distance / radius;
     if (t >= 1) return 0;
-    const profile = Math.pow(1 - t, cone.exponent);
-    const craterT = distance / cone.craterRadius;
-    const crater = craterT < 1 ? cone.craterDepth * (1 - craterT * craterT) : 0;
-    return cone.height * profile - crater;
+    return cone.height * Math.pow(1 - t, cone.exponent);
+  }
+
+  /**
+   * The main crater, expressed as a delta on the cone it is cut into.
+   *
+   * Three shapes added together, all measured along `u` — the distance from the
+   * vent as a fraction of that bearing's own, wobbled rim radius:
+   *
+   *   1. **Levelling** — the cone's own rise inside the crown is exchanged for
+   *      a level summit, so the crater (and not the old apex) decides the shape
+   *      of the whole top. Outside the crown the same term raises the ground
+   *      into the broad shoulder a real rim sits on, and it is gone by the time
+   *      the cone's flank takes over.
+   *   2. **Crest** — the outer rim: a rounded ring ridge of varying height, so
+   *      the crown is a series of shoulders and saddles instead of the lip of a
+   *      bowl. The high ground of the sector is this ring.
+   *   3. **Bowl** — the floor, the long inner wall and its gullies, reaching
+   *      from the vent out to the foot of the crest.
+   *
+   * Nothing here is circular: the rim radius is wobbled per bearing, the crest
+   * height varies with its own noise, and the wall is broken up by a noise
+   * sampled *on the unit circle of the bearing*, so the gullies wrap the wall
+   * seamlessly and no two sides of the crater climb the same way.
+   */
+  craterAt(x, z, crater, coneValue = 0) {
+    const dx = x - crater.x;
+    const dz = z - crater.z;
+    const distance = Math.hypot(dx, dz);
+    const rimRadius = this.craterRimRadiusAt(dx, dz, crater);
+    const u = distance / rimRadius;
+    if (u >= crater.capOuter) return 0;
+
+    const join = crater.join;
+    const seed = this.seed + crater.seedOffset;
+    // Everything angular in this crater is measured on the *unit circle of the
+    // bearing*: radius-independent, continuous in every direction round the
+    // rim, and seam-free — so gullies, terraces and the breach all wrap the
+    // whole circle without a join.
+    const unit = distance > 1e-4 ? 1 / distance : 0;
+    const bearingX = dx * unit;
+    const bearingZ = dz * unit;
+
+    // 1. Level the summit under the crater.
+    const levelling = (crater.summitLevel - coneValue)
+      * (1 - smoothStep(u, crater.capInner, crater.capOuter));
+
+    // 2. The crown: a ring ridge that stands proud, lower here, higher there,
+    //    and breached on one bearing — a saddle deep enough to see through,
+    //    the way a real crater rim is cut by the last thing that left it.
+    const shoulderNoise = fbm(dx * 0.021 - 88.3, dz * 0.021 + 44.6, seed + 733, 3, 0.5, 2);
+    let crestHeight = crater.crestHeight * (1 + crater.crestVariation * 2 * shoulderNoise);
+    if (crater.notchDepth > 0) {
+      const alignment = bearingX * Math.cos(crater.notchBearing)
+        + bearingZ * Math.sin(crater.notchBearing);
+      const reach = Math.max(0, alignment);
+      const notch = 1 - crater.notchDepth * Math.pow(reach, 2 / Math.max(1e-3, crater.notchWidth));
+      crestHeight *= notch;
+    }
+    const crest = crestHeight * (
+      roundedRamp(u, 1 - crater.crestInner, 1, join)
+      - roundedRamp(u, 1, 1 + crater.crestOuter, join)
+    );
+
+    // 3. The bowl: floor, wall, gullies. The wall is sampled on the unit
+    //    circle of the bearing, so it has no seam at any angle and the crest
+    //    can vary freely without the wall ever mirroring it.
+    const wallNoise = fbm(bearingX * 2.3 + 5.1, bearingZ * 2.3 - 8.4, seed + 149, 3, 0.5, 2);
+    const ledgeNoise = fbm(bearingX * 5.4 - 3.7, bearingZ * 5.4 + 9.2, seed + 907, 2, 0.5, 2);
+    // Terraces: sampled along the *climb* rather than around the crater, and
+    // warped by the bearing noise, so each side of the wall breaks into its
+    // own steps at its own heights.
+    const terraceNoise = fbm(u * 4.6 + 12.3, wallNoise * 1.8 - 4.1, seed + 611, 3, 0.5, 2);
+    const wallBand = smoothStep(u, crater.floorEdge * 0.6, crater.floorEdge + 0.1)
+      * (1 - smoothStep(u, 0.94, 1.12));
+    const gullies = crater.wallRoughness * wallBand
+      * (wallNoise * 0.52 + ledgeNoise * 0.16 + terraceNoise * 0.32);
+
+    const bowl = -crater.depth * (1 - roundedRamp(u, crater.floorEdge, 1 - crater.crestInner, join))
+      - crater.floorDish * (1 - smoothStep(0, crater.floorEdge, u));
+
+    return levelling + crest + bowl + gullies;
+  }
+
+  /**
+   * The main crater's rim radius on one bearing: a coarse and a fine wobble
+   * added together, so the outline is lobed at more than one scale and no two
+   * radii of the crown match. The wobble alone can move the rim by a third of
+   * its nominal radius.
+   */
+  craterRimRadiusAt(dx, dz, crater) {
+    const seed = this.seed + crater.seedOffset;
+    const lobes = fbm(dx * 0.0185 + 57.1, dz * 0.0185 - 33.4, seed, 3, 0.5, 2);
+    const detail = fbm(dx * 0.0445 - 12.7, dz * 0.0445 + 71.9, seed + 421, 2, 0.5, 2);
+    const wobble = lobes * 0.68 + detail * 0.32;
+    return crater.rimRadius * (1 + crater.irregularity * wobble);
   }
 
   /** The lower basin: a flat-floored bowl with an irregular, feathered rim. */
