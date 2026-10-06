@@ -9,7 +9,7 @@ import { between, makeRandom } from './random.js';
  * The forest biome used to be scenery: trees, grass, mist and rain, all of it
  * moving, none of it alive. This module adds the birds that belong in a
  * temperate spruce wood — a flock of chaffinches, a few great tits working the
- * trunks and a pair of jays — and, more importantly, the *behaviour* that makes
+ * trunks and several jays — and, more importantly, the *behaviour* that makes
  * them read as animals rather than as props: perch selection, take-off and
  * landing, flap–glide flight that banks into its turns and weaves between the
  * trunks, ground foraging, preening, upside-down hanging, and the alarm flush
@@ -24,7 +24,7 @@ import { between, makeRandom } from './random.js';
  *    `src/player/CharacterRig.js`, but skinned. Geometry is merged into one
  *    mesh per material and bound rigidly to the bones, so a bird with ~90
  *    modelled feather blades and ~22 joints costs two draw calls, which is
- *    what makes a flock of fifteen affordable.
+ *    what keeps a flock of thirty-two affordable.
  *
  * 2. **The animation is the point.** The wings carry a three-segment fold:
  *    the humerus, the forearm and the hand each add their own lag to the flap
@@ -58,6 +58,7 @@ const SMOOTH = (current, target, rate, dt) => (
 
 const clamp01 = (value) => (value < 0 ? 0 : value > 1 ? 1 : value);
 const lerp = THREE.MathUtils.lerp;
+const FIDGET_STATES = new Set(['perched', 'ground', 'look', 'forage', 'preen', 'sing']);
 
 /* -------------------------------------------------------------------------
  * Species
@@ -2012,10 +2013,10 @@ export class BirdRig {
 /* -------------------------------------------------------------------------
  * The flock
  *
- * Fifteen birds could be fifteen independent scripts, but then they would all
- * take off at the same moment and the wood would look like it was running on a
- * metronome. Everything a bird decides — where to sit, when to drop to the
- * floor, when to sing, who chases whom — is handed out by this scheduler from
+ * Thirty-two birds could be thirty-two independent scripts, but then they
+ * would all take off at the same moment and the wood would look like it was
+ * running on a metronome. Everything a bird decides — where to sit, when to
+ * drop to the floor, when to sing, who chases whom — is handed out by this scheduler from
  * one seeded PRNG, so the flock is varied, reproducible, and never in lockstep.
  * ---------------------------------------------------------------------- */
 
@@ -2023,7 +2024,7 @@ const SPECIES_ORDER = SPECIES_LIST.map((species) => species.id);
 
 /** How many birds of each species a forest should hold, given a total. */
 export function birdSpeciesCounts(config = {}) {
-  const total = Math.max(1, Math.floor(config.forestBirdCount ?? 15));
+  const total = Math.max(1, Math.floor(config.forestBirdCount ?? 32));
   const configured = config.forestBirdSpecies ?? SPECIES_ORDER;
   const species = configured.filter((id) => BIRD_SPECIES[id]);
   const list = species.length ? species : SPECIES_ORDER;
@@ -2149,6 +2150,15 @@ export function buildForestBirds(sector, config = {}, {
         wingSpread: 0,
         airborne: false,
         alert: 0,
+        // Small, infrequent idle gestures keep a perched flock from reading as
+        // a row of statues: a wing stretch, a tail flick or a quick head
+        // twitch, each on its own seeded timer.
+        fidget: 0,
+        fidgetKind: null,
+        fidgetTime: 0,
+        fidgetDuration: 0,
+        fidgetTimer: between(birdRandom, 1.8, 5.5),
+        stateSerial: 0,
         // The head is a small state machine of its own: it holds still while the
         // body bobs, then snaps to a new angle and holds again.
         head: {
@@ -2206,6 +2216,7 @@ export function buildForestBirds(sector, config = {}, {
     setState(bird, next, duration) {
       bird.state = next;
       bird.stateTime = 0;
+      bird.stateSerial = (bird.stateSerial ?? 0) + 1;
       bird.stateDuration = duration ?? between(bird.random, 1.5, 5);
     },
     update(delta, playerPosition) {
@@ -2412,6 +2423,7 @@ function updateBird(flock, bird, dt, playerPosition) {
   const flying = !stand || bird.position.y - support > 1.2;
   const grounded = !flying;
   bird.airborne = flying;
+  updatePerchFidget(bird, dt, grounded);
 
   // Wing spread and flap rate ease towards what the state asks for, so a
   // take-off opens the wings instead of switching them on.
@@ -2543,40 +2555,82 @@ function updateBird(flock, bird, dt, playerPosition) {
   // The tail counterweights the flight: it drops on the downstroke and lifts
   // when the bird is climbing, and fans when it flares to land.
   const flare = state === 'descend' || state === 'travel' || state === 'takeoff' ? 0.55 : 0;
-  const tailPitch = 0.12 * Math.sin(bird.wingPhase - 1.2) - climb * 0.045 + (grounded ? 0.1 : 0);
+  const wingFidget = bird.fidgetKind === 'wing' ? bird.fidget : 0;
+  const tailFidget = bird.fidgetKind === 'tail' ? bird.fidget : 0;
+  const headFidget = bird.fidgetKind === 'head' ? bird.fidget : 0;
+  const idleFidgetWave = Math.sin(flock.time * 19 + bird.seed);
+  const tailPitch = 0.12 * Math.sin(bird.wingPhase - 1.2) - climb * 0.045
+    + (grounded ? 0.1 : 0)
+    + tailFidget * idleFidgetWave * 0.28;
   const bodyPitch = (flying ? (bird.speed / Math.max(1, flight.cruiseSpeed)) * 0.25 : -0.1)
     + (state === 'descend' ? 0.22 : 0)
     - (state === 'takeoff' ? 0.35 : 0)
     + Math.sin(bird.wingPhase * 2) * 0.03 * bird.flapRate;
 
   rig.applyPose({
-    wingSpread: bird.wingSpread,
-    flapPhase: bird.wingPhase,
-    flapAmplitude: 0.85 + bird.glide * -0.7 + (flying ? 0.25 : 0),
+    wingSpread: Math.max(bird.wingSpread, wingFidget * 0.3),
+    flapPhase: bird.wingPhase + wingFidget * 0.45,
+    flapAmplitude: 0.85 + bird.glide * -0.7 + (flying ? 0.25 : 0) + wingFidget * 0.65,
     glideBlend: bird.glide,
     bodyPitch,
     bodyRoll: bird.bank ?? 0,
-    bodyBob: grounded ? Math.sin(flock.time * 3 + bird.seed) * 0.006 : 0,
+    bodyBob: grounded
+      ? Math.sin(flock.time * 3 + bird.seed) * 0.009 + wingFidget * 0.012 + tailFidget * 0.006
+      : 0,
     legTuck: bird.legTuck,
     legReach: state === 'descend' ? 0.7 : (state === 'takeoff' ? 0.3 : 0),
     footGrip: bird.footGrip,
     toeCurl: state === 'hop' ? 0.4 : 0,
     neckPitch: state === 'forage' || state === 'ground' ? 0.5 : 0,
-    headYaw: head.yaw,
-    headPitch: head.pitch,
+    headYaw: head.yaw + headFidget * idleFidgetWave * 0.18,
+    headPitch: head.pitch + headFidget * Math.sin(flock.time * 19 + bird.seed + 0.8) * 0.1,
     headRoll: head.roll,
     beakOpen: bird.beakOpen,
     crestRaise: bird.crest,
+    crestSway: singing ? Math.sin(songClock * 0.55) * 0.1 : 0,
     tailPitch,
-    tailSpread: 0.1 + flare + (state === 'flush' ? 0.4 : 0),
+    tailSpread: 0.1 + flare + (state === 'flush' ? 0.4 : 0) + tailFidget * 0.16,
     tailLeft: Math.sin(flock.time * 2.1 + bird.seed) * (grounded ? 0.12 : 0.04),
     tailRight: Math.sin(flock.time * 2.1 + bird.seed + 0.4) * (grounded ? 0.12 : 0.04),
-    wingLift: state === 'flush' ? 0.12 : 0,
+    wingLift: state === 'flush' ? 0.12 : (state === 'preen' ? 0.14 : wingFidget * 0.14),
   });
 
   rig.root.position.copy(bird.position);
   const pitch = THREE.MathUtils.clamp(bodyPitch * 0.8 + (flying ? 0 : -0.05), -0.9, 0.9);
   rig.root.rotation.set(pitch, bird.yaw, 0);
+}
+
+/** A quiet, seeded gesture while perched: not every bird moves at once. */
+function updatePerchFidget(bird, dt, grounded) {
+  const canFidget = grounded && FIDGET_STATES.has(bird.state);
+  if (!canFidget) {
+    bird.fidget = 0;
+    bird.fidgetDuration = 0;
+    return;
+  }
+
+  bird.fidgetTimer -= dt;
+  if (bird.fidgetTimer <= 0) {
+    if (bird.random() < 0.54) {
+      const choice = bird.random();
+      bird.fidgetKind = choice < 0.42 ? 'wing' : choice < 0.78 ? 'tail' : 'head';
+      bird.fidgetDuration = between(bird.random, 0.32, 0.68);
+      bird.fidgetTime = 0;
+    }
+    bird.fidgetTimer = between(bird.random, 4.2, 9.5);
+  }
+
+  if (bird.fidgetDuration <= 0) {
+    bird.fidget = 0;
+    return;
+  }
+  bird.fidgetTime += dt;
+  const progress = clamp01(bird.fidgetTime / bird.fidgetDuration);
+  bird.fidget = Math.sin(progress * Math.PI);
+  if (progress >= 1) {
+    bird.fidget = 0;
+    bird.fidgetDuration = 0;
+  }
 }
 
 /** The terrain height under a bird, from the same lattice the explorer walks. */
