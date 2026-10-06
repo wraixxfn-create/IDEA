@@ -201,6 +201,17 @@ export const MAP_CONFIG = Object.freeze({
   // enough now that the floor has to be as busy as the canopy above it.
   forestBranchCount: 760,
   forestMushroomCount: 260,
+  // --- HEX_S wildlife -----------------------------------------------------
+  // The wood carries a mixed flock: chaffinches and great tits moving through
+  // the understorey, and a jay or two with the run of the whole sector. They
+  // are never colliders — they get out of the explorer's way long before a
+  // collision could happen.
+  forestBirdsEnabled: true,
+  forestBirdCount: 15,
+  forestBirdSpecies: Object.freeze(['chaffinch', 'tit', 'jay']),
+  // Birds stay under the canopy: the mist, the trunks and the explorer all live
+  // below this, and a bird above it would be flying through the dome.
+  forestBirdCeiling: 28,
   windStrength: 1,
   forestLightColors: Object.freeze([0xd4c98a, 0xf5d6a0, 0xa8c490]),
   forestLightIntensity: 0.52,
