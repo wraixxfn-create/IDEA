@@ -8,6 +8,7 @@ import { buildForestFloorDetail, buildForestMist } from './ForestDetail.js';
 import { buildForestRain } from './Rain.js';
 import { buildForestBirds } from './ForestBirds.js';
 import { createForestTerrain } from './ForestTerrain.js';
+import { createVolcanicTerrain } from './VolcanicTerrain.js';
 import { createWindUniforms } from './wind.js';
 
 function createFloorGeometry(radius) {
@@ -175,11 +176,36 @@ export class HexMap {
     // all come out of the same baked lattice (see ForestTerrain.js).
     this.forestTerrain = createForestTerrain(config.hexRadius, config, 'HEX_S');
     this.forestTerrainGeometry = this.forestTerrain.geometry;
+    // HEX_SE is the volcanic sector: the flat crimson plate is replaced by a
+    // large baked relief (see VolcanicTerrain.js) built on the same lattice
+    // engine, with a flat apron around each of the sector's four portals so
+    // every entrance stays level. Its rim is pinned to the shared floor
+    // height, so the walls, the gates and the neighbouring sectors are
+    // untouched by it.
+    this.volcanicTerrain = createVolcanicTerrain(
+      config.hexRadius,
+      config,
+      'HEX_SE',
+      this.sectorGateAprons('HEX_SE'),
+    );
+    this.volcanicTerrainGeometry = this.volcanicTerrain.geometry;
+    // Every sector whose floor is a baked relief, by id: the walkable-surface
+    // queries below read the terrain the player is actually standing on.
+    this.sectorTerrains = new Map([
+      ['HEX_S', this.forestTerrain],
+      ['HEX_SE', this.volcanicTerrain],
+    ]);
     this.floorRingGeometry = createHexRingGeometry(config.hexRadius * 0.88, config.hexRadius * 0.905);
     this.forestRingGeometry = createHexRingGeometry(
       config.hexRadius * 0.88,
       config.hexRadius * 0.905,
       (x, z) => this.forestTerrain.heightAt(x, z) + 0.05,
+      18,
+    );
+    this.volcanicRingGeometry = createHexRingGeometry(
+      config.hexRadius * 0.88,
+      config.hexRadius * 0.905,
+      (x, z) => this.volcanicTerrain.heightAt(x, z) + 0.05,
       18,
     );
     this.leafGeometry = createLeafGeometry();
@@ -203,6 +229,21 @@ export class HexMap {
     });
     this.forestSoilBorderMaterial = new THREE.MeshStandardMaterial({
       color: config.forestSoilDarkColor ?? 0x35251d,
+      roughness: 1,
+      metalness: 0,
+    });
+    // A simple gray/dark volcanic rock for HEX_SE: the relief is shaded per
+    // vertex (ash plains, darker hollows, pale heights), the material itself
+    // stays a plain desaturated basalt — no textures at this stage.
+    this.volcanicRockMaterial = new THREE.MeshStandardMaterial({
+      name: 'VolcanicRockMaterial_HEX_SE',
+      color: config.volcanicRockColor ?? 0x4f5157,
+      vertexColors: true,
+      roughness: 0.95,
+      metalness: 0.04,
+    });
+    this.volcanicBorderMaterial = new THREE.MeshStandardMaterial({
+      color: config.volcanicRockDarkColor ?? 0x26282c,
       roughness: 1,
       metalness: 0,
     });
@@ -403,46 +444,67 @@ export class HexMap {
   buildFloors() {
     for (const sector of this.sectors) {
       const isForest = sector.id === 'HEX_S';
+      const isVolcanic = sector.id === 'HEX_SE';
+      const hasRelief = isForest || isVolcanic;
+      const terrain = isForest ? this.forestTerrain : isVolcanic ? this.volcanicTerrain : null;
       const color = isForest
         ? (this.config.forestSoilColor ?? 0x4f3829)
-        : (this.config.sectorColors?.[sector.id]
-          ?? getSectorColor(sector.id, sector.order));
+        : isVolcanic
+          ? (this.config.volcanicRockColor ?? 0x4f5157)
+          : (this.config.sectorColors?.[sector.id]
+            ?? getSectorColor(sector.id, sector.order));
       const sectorFloorMaterial = isForest
         ? this.forestSoilMaterial
-        : new THREE.MeshStandardMaterial({
-          color,
-          roughness: 0.80,
-          metalness: 0.06,
-        });
+        : isVolcanic
+          ? this.volcanicRockMaterial
+          : new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.80,
+            metalness: 0.06,
+          });
       this.floorMaterials.set(sector.id, sectorFloorMaterial);
 
       const floor = new THREE.Mesh(
-        isForest ? this.forestTerrainGeometry : this.floorGeometry,
+        hasRelief ? terrain.geometry : this.floorGeometry,
         sectorFloorMaterial,
       );
       floor.name = `Floor_${sector.id}`;
       floor.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
       floor.receiveShadow = true;
       floor.userData.sectorId = sector.id;
-      floor.userData.biome = isForest ? 'forest-soil-and-leaves' : 'sector-floor';
-      floor.userData.terrain = isForest ? 'baked-hex-lattice-edge-flat' : 'flat';
-      if (isForest) {
-        floor.userData.terrainAmplitude = this.forestTerrain.amplitude;
-        floor.userData.edgeBlend = this.forestTerrain.edgeBlend;
-        floor.userData.divisions = this.forestTerrain.divisions;
-        floor.userData.cellSize = this.forestTerrain.cellSize;
+      floor.userData.biome = isForest
+        ? 'forest-soil-and-leaves'
+        : isVolcanic
+          ? 'volcanic-rock'
+          : 'sector-floor';
+      floor.userData.terrain = hasRelief ? 'baked-hex-lattice-edge-flat' : 'flat';
+      if (hasRelief) {
+        floor.userData.terrainAmplitude = terrain.amplitude;
+        floor.userData.edgeBlend = terrain.edgeBlend;
+        floor.userData.divisions = terrain.divisions;
+        floor.userData.cellSize = terrain.cellSize;
         floor.userData.collision = 'baked-lattice-barycentric';
-        floor.userData.maxSlopeDegrees = this.forestTerrainGeometry.userData.maxSlopeDegrees;
+        floor.userData.maxSlopeDegrees = terrain.geometry.userData.maxSlopeDegrees;
       }
       this.group.add(floor);
       this.sectorMeshes.set(sector.id, floor);
       if (isForest) this.forestTerrainMesh = floor;
+      if (isVolcanic) this.volcanicTerrainMesh = floor;
 
-      // The thin border is deliberately kept at the base level. HEX_S terrain
-      // fades back to that exact height before every shared edge.
+      // The thin border is deliberately kept at the base level for the flat
+      // sectors. The forest and volcanic reliefs fade back to that exact
+      // height before every shared edge; their border bands ride the relief.
       const ring = new THREE.Mesh(
-        isForest ? this.forestRingGeometry : this.floorRingGeometry,
-        isForest ? this.forestSoilBorderMaterial : this.floorRingMaterial,
+        isForest
+          ? this.forestRingGeometry
+          : isVolcanic
+            ? this.volcanicRingGeometry
+            : this.floorRingGeometry,
+        isForest
+          ? this.forestSoilBorderMaterial
+          : isVolcanic
+            ? this.volcanicBorderMaterial
+            : this.floorRingMaterial,
       );
       ring.name = `FloorRing_${sector.id}`;
       ring.position.set(sector.center.x, this.config.floorHeight + 0.02, sector.center.z);
@@ -1319,6 +1381,22 @@ export class HexMap {
     return this.sectorById.get(id) ?? null;
   }
 
+  /**
+   * The centres of a sector's portals in sector-local coordinates. The
+   * volcanic field uses them to keep a flat, walkable apron in front of every
+   * gate, so the terrain never crowds an entrance.
+   */
+  sectorGateAprons(sectorId) {
+    const sector = this.sectorById.get(sectorId);
+    if (!sector) return [];
+    return this.gates
+      .filter((gate) => gate.aSectorId === sectorId || gate.bSectorId === sectorId)
+      .map((gate) => ({
+        x: gate.center.x - sector.center.x,
+        z: gate.center.z - sector.center.z,
+      }));
+  }
+
   getSectorAt(x, z) {
     for (const sector of this.sectors) {
       if (isPointInsideHex(
@@ -1333,16 +1411,25 @@ export class HexMap {
   }
 
   /**
+   * The baked terrain of a sector (HEX_S forest, HEX_SE volcanic field), or
+   * null for the sectors that keep the flat plate.
+   */
+  getSectorTerrain(sectorId) {
+    return this.sectorTerrains?.get(sectorId) ?? null;
+  }
+
+  /**
    * Height of the walkable surface under a world point, or null outside the
-   * map. For HEX_S this reads the *same* baked lattice the terrain mesh is
-   * built from, so the collision surface and the rendered ground are the same
-   * model down to floating-point noise.
+   * map. For the sectors with a baked relief this reads the *same* lattice
+   * the terrain mesh is built from, so the collision surface and the rendered
+   * ground are the same model down to floating-point noise.
    */
   getTerrainHeightAt(x, z) {
     const sector = this.getSectorAt(x, z);
     if (!sector) return null;
-    if (sector.id !== 'HEX_S' || !this.forestTerrain) return this.config.floorHeight;
-    return this.config.floorHeight + this.forestTerrain.heightAt(
+    const terrain = this.getSectorTerrain(sector.id);
+    if (!terrain) return this.config.floorHeight;
+    return this.config.floorHeight + terrain.heightAt(
       x - sector.center.x,
       z - sector.center.z,
     );
@@ -1355,15 +1442,17 @@ export class HexMap {
   /** Surface normal of the ground under a world point (always unit length). */
   getTerrainNormalAt(x, z, target = new THREE.Vector3()) {
     const sector = this.getSectorAt(x, z);
-    if (!sector || sector.id !== 'HEX_S' || !this.forestTerrain) return target.set(0, 1, 0);
-    return this.forestTerrain.normalAt(x - sector.center.x, z - sector.center.z, target);
+    const terrain = sector && this.getSectorTerrain(sector.id);
+    if (!terrain) return target.set(0, 1, 0);
+    return terrain.normalAt(x - sector.center.x, z - sector.center.z, target);
   }
 
   /** Steepness (rise over run) of the ground under a world point. */
   getTerrainSlopeAt(x, z) {
     const sector = this.getSectorAt(x, z);
-    if (!sector || sector.id !== 'HEX_S' || !this.forestTerrain) return 0;
-    return this.forestTerrain.slopeAt(x - sector.center.x, z - sector.center.z);
+    const terrain = sector && this.getSectorTerrain(sector.id);
+    if (!terrain) return 0;
+    return terrain.slopeAt(x - sector.center.x, z - sector.center.z);
   }
 
   resolveHorizontalPosition(

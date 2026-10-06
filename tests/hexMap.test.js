@@ -65,6 +65,13 @@ test('map builds eight sectors, a closed perimeter and detailed animated portals
         Math.abs(height - MAP_CONFIG.floorHeight) <= MAP_CONFIG.forestTerrainAmplitude,
         'the forest centre stays inside the modelled relief',
       );
+    } else if (sector.id === 'HEX_SE') {
+      // The volcanic sector carries a modelled relief too: its centre sits in
+      // the ash plains, wherever the baked field puts it.
+      assert.ok(
+        Math.abs(height - MAP_CONFIG.floorHeight) <= MAP_CONFIG.volcanicTerrainAmplitude,
+        'the volcanic centre stays inside the modelled relief',
+      );
     } else {
       assert.equal(height, MAP_CONFIG.floorHeight);
     }
