@@ -160,6 +160,7 @@ test('the forest floor carries undergrowth planted on the relief, inside HEX_S',
     'ForestShrubs_HEX_S',
     'ForestRocks_HEX_S',
     'ForestFallenLogs_HEX_S',
+    'ForestFallenBranches_HEX_S',
     'ForestMushrooms_HEX_S',
   ]) {
     assert.ok(names.includes(expected), `missing ${expected}`);
@@ -190,16 +191,43 @@ test('the forest floor carries undergrowth planted on the relief, inside HEX_S',
   }
   assert.ok(planted > 500, `expected a full undergrowth scatter, got ${planted}`);
   assert.ok(detail.userData.grassCount >= Math.floor(MAP_CONFIG.forestGrassCount * 0.5));
+
+  // The floor is as busy as the canopy above it: thousands of grass tufts,
+  // hundreds of shrubs and a carpet of broken branches.
+  assert.ok(detail.userData.grassCount >= 2000,
+    `expected dense grass, found ${detail.userData.grassCount} tufts`);
+  assert.ok(detail.userData.shrubCount >= 300,
+    `expected a thick shrub layer, found ${detail.userData.shrubCount} shrubs`);
+  assert.ok(detail.userData.branchCount >= 400,
+    `expected fallen branches on the floor, found ${detail.userData.branchCount}`);
+  assert.ok(detail.userData.mushroomCount >= 150);
 });
 
 test('HEX_S mist layers and the shared wind clock animate with the world', () => {
   const map = makeMap();
   assert.equal(map.mistLayers.children.length, MAP_CONFIG.forestMistLayers);
+  assert.ok(MAP_CONFIG.forestMistLayers >= 6, 'HEX_S carries a deep stack of ground fog');
+  const phases = new Set();
+  const headings = new Set();
   for (const layer of map.mistLayers.children) {
     assert.equal(layer.material.transparent, true);
     assert.equal(layer.material.depthWrite, false);
     assert.ok(layer.position.y > MAP_CONFIG.floorHeight);
+    // Every layer samples the mist noise through its own offset and its own
+    // starting heading, so the stack never reads as one disc stamped eight
+    // times over the same circle.
+    phases.add(layer.material.uniforms.uPhase.value.toArray().join(','));
+    headings.add(layer.rotation.y.toFixed(4));
   }
+  assert.equal(phases.size, MAP_CONFIG.forestMistLayers);
+  assert.equal(headings.size, MAP_CONFIG.forestMistLayers);
+
+  // The stack reaches from just above the soil into the lower canopy, and it
+  // is thick: the summed opacity is far past the old three-layer mist.
+  const heights = map.mistLayers.children.map((layer) => layer.position.y);
+  assert.ok(Math.max(...heights) > 12, 'the fog climbs the trunks');
+  assert.ok(map.mistLayers.userData.thickness > 2,
+    `the mist stack is thin (${map.mistLayers.userData.thickness})`);
 
   const mistRotation = map.mistLayers.children[0].rotation.y;
   assert.equal(map.windUniforms.time.value, 0);

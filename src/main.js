@@ -5,6 +5,7 @@ import { HexMap } from './world/HexMap.js';
 import { PlayerController } from './player/PlayerController.js';
 import { resolveSunDirection } from './world/SkyDome.js';
 import { Minimap } from './ui/Minimap.js';
+import { MapOverlay } from './ui/MapOverlay.js';
 
 const viewport = document.querySelector('#viewport');
 const enterButton = document.querySelector('#enter-world');
@@ -78,10 +79,16 @@ overviewCamera.lookAt(0, 0, 0);
 
 let debugMode = false;
 let hasStarted = false;
-let minimapOpen = false;
-// Set while the map is open if the explorer was playing, so closing the map
-// drops straight back into the world instead of into the pause menu.
-let resumeAfterMinimap = false;
+
+// The world map is an overlay, not a pause screen: it keeps the pointer lock
+// and the key state, so the explorer answers the keyboard while the map is up
+// and closing it never leaves the controls dead (see src/ui/MapOverlay.js).
+const mapOverlay = new MapOverlay({
+  overlay: minimapOverlay,
+  player,
+  onOpen: () => renderMinimap(),
+  onChange: () => updatePrompt(),
+});
 
 const VIEW_STORAGE_KEY = 'hexfield:view-mode';
 try {
@@ -118,7 +125,7 @@ function flashViewState() {
 
 function updatePrompt() {
   const locked = player.isLocked;
-  const shouldShow = !debugMode && !locked && !minimapOpen;
+  const shouldShow = !debugMode && !locked && !mapOverlay.isOpen;
   const paused = hasStarted && shouldShow;
   experiencePrompt.classList.toggle('is-hidden', !shouldShow);
   experiencePrompt.classList.toggle('is-paused', paused);
@@ -132,11 +139,11 @@ function updatePrompt() {
     experiencePrompt.removeAttribute('aria-labelledby');
   }
   debugState.classList.toggle('is-visible', debugMode);
-  const showFlightState = player.isFlying && player.isLocked && !debugMode && !minimapOpen;
+  const showFlightState = player.isFlying && player.isLocked && !debugMode && !mapOverlay.isOpen;
   flightState.classList.toggle('is-visible', showFlightState);
   flightState.setAttribute('aria-hidden', String(!showFlightState));
 
-  if (viewState && (!player.isLocked || debugMode || minimapOpen)) hideViewState();
+  if (viewState && (!player.isLocked || debugMode || mapOverlay.isOpen)) hideViewState();
   if (viewToggleButton) {
     viewToggleButton.textContent = player.isFirstPerson
       ? 'Vista: prima persona'
@@ -151,7 +158,7 @@ function updatePrompt() {
     return;
   }
 
-  if (minimapOpen) {
+  if (mapOverlay.isOpen) {
     enterLabel.textContent = 'Mappa aperta';
     promptNote.textContent = 'Premi M o Esc per chiudere la mappa';
     enterButton.disabled = true;
@@ -166,7 +173,7 @@ function updatePrompt() {
 player.onLockChange = (locked) => {
   if (locked) hasStarted = true;
   updatePrompt();
-  if (!locked && !debugMode && !minimapOpen && hasStarted) {
+  if (!locked && !debugMode && !mapOverlay.isOpen && hasStarted) {
     enterButton.focus({ preventScroll: true });
   }
 };
@@ -193,7 +200,10 @@ viewToggleButton?.addEventListener('click', () => {
 function setDebugMode(enabled) {
   debugMode = enabled;
   world.setDebugVisible(debugMode);
-  if (debugMode) player.releasePointerLock();
+  if (debugMode) {
+    mapOverlay.close({ resume: false });
+    player.releasePointerLock();
+  }
   updatePrompt();
 }
 
@@ -211,7 +221,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'Escape' || event.key === 'Escape') {
     // Browsers may handle Esc themselves; pointerlockchange also opens the
     // menu. Explicit handling covers debug view and already-unlocked states.
-    if (minimapOpen) toggleMinimap(false, { resume: false });
+    if (mapOverlay.isOpen) mapOverlay.close({ resume: false });
     if (debugMode) setDebugMode(false);
     updatePrompt();
     if (hasStarted) enterButton.focus({ preventScroll: true });
@@ -220,7 +230,7 @@ window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
   if (matchesKey(event, 'KeyM', 'm')) {
     event.preventDefault();
-    toggleMinimap(!minimapOpen);
+    mapOverlay.toggle();
     return;
   }
   if (matchesKey(event, 'KeyV', 'v')) {
@@ -234,26 +244,7 @@ window.addEventListener('keydown', (event) => {
   setDebugMode(!debugMode);
 });
 
-function toggleMinimap(open, { resume = true } = {}) {
-  if (open === minimapOpen) return;
-  minimapOpen = open;
-  minimapOverlay.classList.toggle('is-hidden', !open);
-  minimapOverlay.setAttribute('aria-hidden', String(!open));
-  if (open) {
-    resumeAfterMinimap = player.isLocked;
-    renderMinimap();
-    // Release pointer lock so the player can see the cursor.
-    player.releasePointerLock();
-  } else if (resume && resumeAfterMinimap && !debugMode) {
-    // Closing with M goes straight back to exploring: the keypress is a user
-    // gesture, so the browser lets the pointer re-lock immediately.
-    resumeAfterMinimap = false;
-    player.requestPointerLock();
-  }
-  updatePrompt();
-}
-
-minimapClose?.addEventListener('click', () => toggleMinimap(false));
+minimapClose?.addEventListener('click', () => mapOverlay.close());
 
 const minimap = new Minimap({
   canvas: minimapCanvas,
@@ -344,6 +335,9 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
 
+  // The map is drawn over a world that keeps running: the explorer keeps
+  // walking and the wind keeps blowing while the overlay is up, so closing it
+  // drops the player exactly where they are instead of into a frozen scene.
   if (!debugMode) {
     world.update(delta, player.position);
     player.update(delta);
@@ -353,8 +347,9 @@ function animate() {
   renderer.render(scene, debugMode ? overviewCamera : camera);
 
   // Keep the minimap marker current while the map is open, at a calm 12 Hz:
-  // the world behind it is paused, so there is nothing to redraw faster for.
-  if (minimapOpen) {
+  // it is a position readout, not an animation, so there is nothing to redraw
+  // faster for.
+  if (mapOverlay.isOpen) {
     minimapTimer += delta;
     if (minimapTimer >= 1 / 12) {
       minimapTimer = 0;

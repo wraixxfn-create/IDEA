@@ -76,22 +76,48 @@ function makeTransform(position, scale, yaw, y = 0) {
   };
 }
 
-function makeDenseTreePlacements(config) {
-  const targetCount = Math.max(
+/**
+ * How many trees of each class the grove carries: the eighteen authored
+ * mature spruces, then the young pines that thicken the wood, then the
+ * saplings that fill every last gap. Reported so the world HUD and the tests
+ * can tell the three classes apart.
+ */
+export function pineClassCounts(config) {
+  const total = Math.max(
     CORE_TREE_PLACEMENTS.length,
     Math.floor(config.forestTreeCount ?? 52),
   );
+  const young = THREE.MathUtils.clamp(
+    Math.floor(config.forestYoungTreeCount ?? 0),
+    0,
+    Math.max(0, total - CORE_TREE_PLACEMENTS.length),
+  );
+  return {
+    mature: CORE_TREE_PLACEMENTS.length,
+    young,
+    sapling: Math.max(0, total - CORE_TREE_PLACEMENTS.length - young),
+    total,
+  };
+}
+
+function makeDenseTreePlacements(config) {
+  const counts = pineClassCounts(config);
+  const targetCount = counts.total;
   if (targetCount === CORE_TREE_PLACEMENTS.length) return CORE_TREE_PLACEMENTS;
 
   const random = makeRandom(0xdecafbad);
   const placements = [...CORE_TREE_PLACEMENTS];
   const safeRadius = Math.max(20, config.hexRadius - 24);
+  // A dense wood packs the trunks much tighter than the original clearing-wide
+  // grove did; the exact spacing is configurable so the density can be dialled
+  // without touching the scatter.
+  const minSpacing = config.forestTreeSpacing ?? 17;
   let attempts = 0;
 
   // Fill the interior with a deterministic scatter rather than a rigid grid.
   // A narrow clearing remains between the southern gate and the central grove
   // so the player can still read a path through the denser woodland.
-  while (placements.length < targetCount && attempts < targetCount * 300) {
+  while (placements.length < targetCount && attempts < targetCount * 400) {
     attempts += 1;
     const x = between(random, -safeRadius * 0.82, safeRadius * 0.82);
     const z = between(random, -safeRadius * 0.78, safeRadius * 0.82);
@@ -99,17 +125,19 @@ function makeDenseTreePlacements(config) {
     if (Math.abs(x) < 26 && z < 36) continue;
 
     const tooClose = placements.some((placement) => (
-      Math.hypot(placement.x - x, placement.z - z) < 17
+      Math.hypot(placement.x - x, placement.z - z) < minSpacing
     ));
     if (tooClose) continue;
 
+    // The class of the tree that ends up here depends on the index, so the
+    // scale of a filler can be chosen to match its class.
+    const index = placements.length;
+    const isYoung = index >= counts.mature && index < counts.mature + counts.young;
     placements.push({
       x,
       z,
-      // Smaller saplings fill the gaps between the mature trees without
-      // turning every sightline into a solid wall of identical trunks.
-      scale: between(random, 0.56, 0.91),
-      foliageClass: 'dense-sapling',
+      scale: isYoung ? between(random, 0.62, 0.98) : between(random, 0.56, 0.91),
+      foliageClass: isYoung ? 'young-pine' : 'dense-sapling',
     });
   }
 
@@ -465,6 +493,147 @@ function buildPineSapling(woodBuilder, needleBuilder, random) {
   }
 }
 
+/**
+ * A young pine: the same boughs, forks and needle sprays as a mature spruce,
+ * with fewer tiers, branches and cones packed into a shorter trunk.
+ *
+ * It exists so the grove can be *dense* — three times as many trunks standing
+ * in HEX_S — without tripling the needle budget: a young pine costs roughly a
+ * fifth of a mature one, and the eighteen authored spruces stay exactly as
+ * they were as the landmarks of the wood.
+ */
+function buildPineYoung(woodBuilder, needleBuilder, random, height = TREE_HEIGHT * 0.78, tint = 0) {
+  const leanX = between(random, -0.3, 0.3);
+  const leanZ = between(random, -0.24, 0.24);
+  const trunkPoints = [];
+  const trunkRadii = [];
+  for (let sample = 0; sample <= 5; sample += 1) {
+    const progress = sample / 5;
+    trunkPoints.push(trunkCenterAt(height, progress, leanX, leanZ));
+    trunkRadii.push(trunkRadiusAt(progress) * 0.92);
+  }
+  addTubePath(woodBuilder, trunkPoints, trunkRadii, random, {
+    radialSegments: 7,
+    palette: BARK_COLORS,
+  });
+
+  // Four exposed roots are enough to anchor a young tree to the floor.
+  for (let root = 0; root < 4; root += 1) {
+    const angle = (root / 4) * Math.PI * 2 + between(random, -0.22, 0.22);
+    const direction = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+    addTubePath(woodBuilder, [
+      new THREE.Vector3(0, 0.3, 0),
+      direction.clone().multiplyScalar(between(random, 0.62, 0.94)).add(new THREE.Vector3(0, 0.03, 0)),
+    ], [0.19, 0.012], random, { radialSegments: 5, palette: BARK_COLORS });
+  }
+
+  const tierCount = 5;
+  const crownRadius = height * 0.2;
+  let coneBranch = null;
+
+  for (let tier = 0; tier < tierCount; tier += 1) {
+    const tierProgress = tier / (tierCount - 1);
+    const tierHeight = height * (0.16 + tierProgress * 0.74)
+      + between(random, -0.22, 0.22);
+    const tierRadius = Math.max(0.6, crownRadius * (1 - tierProgress * 0.86));
+    const branchCount = 4;
+    const phase = tier * 2.399963229728653;
+    const centerline = trunkCenterAt(height, tierHeight / height, leanX, leanZ);
+
+    for (let branchIndex = 0; branchIndex < branchCount; branchIndex += 1) {
+      const angle = phase + (branchIndex / branchCount) * Math.PI * 2
+        + between(random, -0.14, 0.14);
+      const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+      const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
+      const branchLength = tierRadius * between(random, 0.92, 1.1);
+      const droop = branchLength * (0.15 - tierProgress * 0.05);
+      const rootRadius = trunkRadiusAt(tierHeight / height);
+      const points = [
+        centerline.clone().addScaledVector(radial, rootRadius * 0.6),
+        centerline.clone().addScaledVector(radial, branchLength * 0.48)
+          .add(new THREE.Vector3(0, -droop * 0.5, 0)),
+        centerline.clone().addScaledVector(radial, branchLength * 0.82)
+          .add(new THREE.Vector3(0, -droop, 0)),
+        centerline.clone().addScaledVector(radial, branchLength)
+          .add(new THREE.Vector3(0, -droop * 0.45 + branchLength * 0.03, 0)),
+      ];
+      addTubePath(woodBuilder, points, [0.12, 0.085, 0.05, 0.02], random, {
+        radialSegments: 5,
+        palette: BRANCH_BARK_COLORS,
+      });
+
+      // One spray mid-bough and one at the tip read as a full bough from a
+      // metre away, which is all a filler tree has to do.
+      addNeedleFan(
+        needleBuilder,
+        interpolatePath(points, 0.42),
+        radial,
+        tangent,
+        branchLength,
+        random,
+        (tier % 3) + tint,
+      );
+      addNeedleFan(
+        needleBuilder,
+        interpolatePath(points, 0.96),
+        radial,
+        tangent,
+        branchLength,
+        random,
+        ((tier + 1) % 3) + tint,
+      );
+
+      const forkOrigin = interpolatePath(points, 0.58);
+      const forkLength = 0.52 + branchLength * 0.09;
+      const forkDirection = radial.clone().multiplyScalar(0.5)
+        .addScaledVector(tangent, 0.66)
+        .addScaledVector(UP, 0.34)
+        .normalize();
+      const forkTip = forkOrigin.clone().addScaledVector(forkDirection, forkLength);
+      addTubePath(woodBuilder, [
+        forkOrigin,
+        forkOrigin.clone().addScaledVector(forkDirection, forkLength * 0.55),
+        forkTip,
+      ], [0.045, 0.026, 0.008], random, { radialSegments: 4, palette: BRANCH_BARK_COLORS });
+      const forkRadial = new THREE.Vector3(forkDirection.x, 0, forkDirection.z).normalize();
+      addNeedleFan(
+        needleBuilder,
+        forkTip,
+        forkRadial,
+        new THREE.Vector3(-forkRadial.z, 0, forkRadial.x),
+        forkLength,
+        random,
+        ((tier + 2) % 3) + tint,
+      );
+
+      if (tier === 2 && branchIndex === 2) coneBranch = interpolatePath(points, 0.56);
+    }
+  }
+
+  const leaderTip = trunkCenterAt(height * 1.03, 1, leanX, leanZ);
+  addTubePath(woodBuilder, [
+    trunkCenterAt(height, 0.8, leanX, leanZ),
+    trunkCenterAt(height, 0.92, leanX, leanZ),
+    leaderTip,
+  ], [0.1, 0.055, 0.01], random, { radialSegments: 5, palette: BRANCH_BARK_COLORS });
+  for (let spray = 0; spray < 4; spray += 1) {
+    const angle = (spray / 4) * Math.PI * 2 + between(random, -0.18, 0.18);
+    const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+    addNeedleFan(
+      needleBuilder,
+      leaderTip,
+      radial,
+      new THREE.Vector3(-radial.z, 0, radial.x),
+      0.72,
+      random,
+      (spray % 3) + tint,
+    );
+  }
+  if (coneBranch) {
+    addPineCone(woodBuilder, coneBranch, new THREE.Vector3(0.1, -1, 0.09), 0.62, 0.155, random);
+  }
+}
+
 function buildPineTree(woodBuilder, needleBuilder, random, height = TREE_HEIGHT, tint = 0) {
   const leanX = between(random, -0.35, 0.35);
   const leanZ = between(random, -0.28, 0.28);
@@ -614,6 +783,7 @@ export function buildPineGrove(sector, config, floorHeightAt = null, windUniform
   group.position.set(sector.center.x, config.floorHeight, sector.center.z);
   group.userData.sectorId = sector.id;
 
+  const counts = pineClassCounts(config);
   const placements = makeDenseTreePlacements(config).map((placement, index) => {
     const seed = 0x51f15e + index * 977;
     const random = makeRandom(seed);
@@ -629,11 +799,16 @@ export function buildPineGrove(sector, config, floorHeightAt = null, windUniform
     const transform = makeTransform(placement, placement.scale, yaw, terrainOffset);
     woodBuilder.setTransform(transform);
     needleBuilder.setTransform(transform);
-    if (index < CORE_TREE_PLACEMENTS.length) {
+    if (index < counts.mature) {
       // Mature pines vary in height and needle hue so the grove never reads as
       // one tree stamped eighteen times across the hex.
       const height = TREE_HEIGHT * between(random, 0.86, 1.18);
       buildPineTree(woodBuilder, needleBuilder, random, height, Math.floor(random() * 3));
+    } else if (index < counts.mature + counts.young) {
+      // Young pines carry the density of the wood; they are shorter, thinner
+      // and cheaper than the mature spruces while keeping the same silhouette.
+      const height = TREE_HEIGHT * between(random, 0.6, 0.84);
+      buildPineYoung(woodBuilder, needleBuilder, random, height, Math.floor(random() * 3));
     } else {
       buildPineSapling(woodBuilder, needleBuilder, random);
     }
@@ -682,12 +857,25 @@ export function buildPineGrove(sector, config, floorHeightAt = null, windUniform
   group.add(wood, needles);
 
   // `treeCount` remains the mature-pine count used by the original map HUD;
-  // totalTreeCount includes the new dense saplings that fill the grove.
+  // totalTreeCount counts every trunk standing in the wood, which is now the
+  // eighteen mature spruces plus the young pines and the saplings between them.
   group.userData.treeCount = CORE_TREE_PLACEMENTS.length;
   group.userData.totalTreeCount = placements.length;
   group.userData.visibleTreeCount = placements.length;
   group.userData.matureTreeCount = CORE_TREE_PLACEMENTS.length;
-  group.userData.saplingCount = Math.max(0, placements.length - CORE_TREE_PLACEMENTS.length);
+  group.userData.youngTreeCount = Math.max(
+    0,
+    Math.min(placements.length, counts.mature + counts.young) - counts.mature,
+  );
+  group.userData.saplingCount = Math.max(
+    0,
+    placements.length - CORE_TREE_PLACEMENTS.length - group.userData.youngTreeCount,
+  );
+  group.userData.treeClassCounts = Object.freeze({
+    mature: group.userData.matureTreeCount,
+    young: group.userData.youngTreeCount,
+    sapling: group.userData.saplingCount,
+  });
   group.userData.canopyDensity = 'dense';
   group.userData.wind = Boolean(windUniforms);
   group.userData.forestDensity = placements.length;

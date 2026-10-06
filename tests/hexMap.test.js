@@ -80,6 +80,24 @@ test('detailed pine trees are present only in HEX_S and stay inside its boundary
   assert.equal(grove.userData.sectorId, 'HEX_S');
   assert.equal(grove.userData.foliageType, 'mature-pine');
   assert.equal(grove.userData.treeCount, 18);
+  // HEX_S is the showcase biome, so the wood is three times as thick as the
+  // eighteen authored spruces: young pines carry the density and saplings fill
+  // the last gaps between the trunks.
+  assert.ok(grove.userData.totalTreeCount >= 150,
+    `expected a dense wood, found ${grove.userData.totalTreeCount} trunks`);
+  assert.ok(grove.userData.youngTreeCount >= 40,
+    `expected a mid-storey of young pines, found ${grove.userData.youngTreeCount}`);
+  assert.ok(grove.userData.saplingCount >= 40);
+  assert.equal(
+    grove.userData.matureTreeCount + grove.userData.youngTreeCount + grove.userData.saplingCount,
+    grove.userData.totalTreeCount,
+    'every trunk belongs to exactly one class',
+  );
+  assert.deepEqual(grove.userData.treeClassCounts, {
+    mature: grove.userData.matureTreeCount,
+    young: grove.userData.youngTreeCount,
+    sapling: grove.userData.saplingCount,
+  });
   assert.equal(grove.children.length, 2, 'wood and needle meshes keep the grove to two draw calls');
   assert.ok(grove.getObjectByName('PineGrove_Wood_HEX_S').geometry.getAttribute('position').count > 10000);
   assert.ok(grove.getObjectByName('PineGrove_Needles_HEX_S').geometry.getAttribute('position').count > 100000);
