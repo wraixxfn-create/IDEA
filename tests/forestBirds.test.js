@@ -67,6 +67,8 @@ test('the wood carries a mixed flock of forest birds', () => {
 test('the flock lives in HEX_S and nowhere else', () => {
   const map = new HexMap(new THREE.Scene(), MAP_CONFIG);
   assert.ok(map.forestBirds, 'HEX_S must have birds');
+  assert.equal(map.forestBirds.birds.length, 32, 'the forest carries the enlarged flock');
+  assert.equal(map.forestBirds.group.userData.birdCount, 32);
   assert.equal(map.forestBirds.group.position.x, map.getSector('HEX_S').center.x);
   assert.equal(map.forestBirds.group.position.z, map.getSector('HEX_S').center.z);
   assert.equal(map.birds, map.forestBirds);
@@ -96,9 +98,12 @@ test('the flock lives in HEX_S and nowhere else', () => {
 
 test('species counts scale with the flock and keep the chaffinches in front', () => {
   const small = birdSpeciesCounts({ forestBirdCount: 6 });
-  const large = birdSpeciesCounts({ forestBirdCount: 30 });
+  const large = birdSpeciesCounts({ forestBirdCount: 32 });
   assert.equal(Object.values(small).reduce((a, b) => a + b, 0), 6);
-  assert.equal(Object.values(large).reduce((a, b) => a + b, 0), 30);
+  assert.equal(Object.values(large).reduce((a, b) => a + b, 0), 32);
+  assert.deepEqual(large, { chaffinch: 16, tit: 11, jay: 5 });
+  assert.deepEqual(birdSpeciesCounts(MAP_CONFIG), large);
+  assert.deepEqual(birdSpeciesCounts(), large, 'the default flock size is 32');
   // The chaffinch is the flock's commonest bird at every size.
   assert.ok(small.chaffinch >= small.tit);
   assert.ok(large.chaffinch > large.jay);
@@ -260,6 +265,27 @@ test('the flap beats a real arc and the head holds still while the body bobs', (
   rig.applyPose({ headYaw: 1.2 });
   assert.equal(rig.neck.rotation.y, neck, 'the neck is not dragged around by the head');
   assert.ok(rig.head.rotation.y > 0.5, 'the head turns on its own joint');
+});
+
+test('resting birds occasionally stretch a wing or flick their tails', () => {
+  const flock = makeFlock({ forestBirdCount: 8 });
+  const restingPlayer = new THREE.Vector3(200, 0, 200);
+  for (const bird of flock.birds) flock.setState(bird, 'perched', 30);
+
+  let sawFidget = false;
+  let sawWingStretch = false;
+  for (let frame = 0; frame < 20 * 60; frame += 1) {
+    flock.update(1 / 60, restingPlayer);
+    for (const bird of flock.birds) {
+      if (bird.fidget > 0.2) sawFidget = true;
+      if (bird.fidgetKind === 'wing' && bird.fidget > 0.2 && bird.rig.wingFold < 0.95) {
+        sawWingStretch = true;
+      }
+    }
+  }
+
+  assert.ok(sawFidget, 'at least one resting bird should perform an idle gesture');
+  assert.ok(sawWingStretch, 'a wing stretch should visibly loosen the folded wing');
 });
 
 test('a perched bird stands on its perch and a flushed bird leaves it', () => {

@@ -7,6 +7,7 @@ import { resolveSunDirection } from './world/SkyDome.js';
 import { Minimap } from './ui/Minimap.js';
 import { MapOverlay } from './ui/MapOverlay.js';
 import { Compass } from './ui/Compass.js';
+import { ForestAudio } from './world/ForestAudio.js';
 
 const viewport = document.querySelector('#viewport');
 const enterButton = document.querySelector('#enter-world');
@@ -28,6 +29,8 @@ const compassCard = document.querySelector('#compass-card');
 const compassLetters = document.querySelector('#compass-letters');
 const compassHeading = document.querySelector('#compass-heading');
 const compassCardinal = document.querySelector('#compass-cardinal');
+const audioToggle = document.querySelector('#audio-toggle');
+const audioToggleLabel = document.querySelector('#audio-toggle-label');
 
 const scene = new THREE.Scene();
 // The same sun paints every cupola, lights the world and casts the key light,
@@ -66,6 +69,7 @@ scene.add(keyLight);
 scene.add(keyLight.target);
 
 const world = new HexMap(scene, MAP_CONFIG);
+const forestAudio = new ForestAudio();
 const camera = new THREE.PerspectiveCamera(
   76,
   window.innerWidth / window.innerHeight,
@@ -96,6 +100,41 @@ overviewCamera.lookAt(0, 0, 0);
 
 let debugMode = false;
 let hasStarted = false;
+let audioPreferenceSet = false;
+
+function updateAudioToggle() {
+  if (!audioToggle) return;
+  const enabled = forestAudio.isEnabled;
+  const unavailable = forestAudio.available === false;
+  audioToggle.classList.toggle('is-on', enabled);
+  audioToggle.setAttribute('aria-pressed', String(enabled));
+  audioToggle.disabled = unavailable;
+  if (audioToggleLabel) {
+    audioToggleLabel.textContent = unavailable
+      ? 'AUDIO NON DISP.'
+      : (enabled ? 'SUONI ON' : 'SUONI OFF');
+  }
+  audioToggle.setAttribute(
+    'aria-label',
+    unavailable
+      ? 'Audio del bosco non disponibile in questo browser'
+      : (enabled ? 'Disattiva i suoni del bosco' : 'Attiva i suoni del bosco'),
+  );
+}
+
+function toggleForestAudio() {
+  audioPreferenceSet = true;
+  void forestAudio.toggle().then(updateAudioToggle);
+}
+
+function startForestAudioOnEntry() {
+  if (audioPreferenceSet) return;
+  audioPreferenceSet = true;
+  void forestAudio.setEnabled(true).then(updateAudioToggle);
+}
+
+updateAudioToggle();
+audioToggle?.addEventListener('click', toggleForestAudio);
 
 // The world map is an overlay, not a pause screen: it keeps the pointer lock
 // and the key state, so the explorer answers the keyboard while the map is up
@@ -184,7 +223,7 @@ function updatePrompt() {
 
   enterButton.disabled = false;
   enterLabel.textContent = hasStarted ? 'Riprendi esplorazione' : 'Click to explore';
-  promptNote.textContent = 'Mouse orbita · Spazio salta · V cambia vista · M mappa · Shift scatto · Esc menù';
+  promptNote.textContent = 'Mouse orbita · Spazio salta · B audio · V vista · M mappa · Shift scatto · Esc menù';
 }
 
 player.onLockChange = (locked) => {
@@ -206,7 +245,9 @@ player.onViewModeChange = (mode) => {
 };
 
 enterButton.addEventListener('click', () => {
-  if (!debugMode) player.requestPointerLock();
+  if (debugMode) return;
+  startForestAudioOnEntry();
+  player.requestPointerLock();
 });
 
 viewToggleButton?.addEventListener('click', () => {
@@ -254,6 +295,11 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     player.toggleViewMode();
     updatePrompt();
+    return;
+  }
+  if (matchesKey(event, 'KeyB', 'b')) {
+    event.preventDefault();
+    toggleForestAudio();
     return;
   }
   if (event.code !== 'F3') return;
@@ -351,6 +397,7 @@ if (import.meta.env?.DEV) {
 }
 
 const clock = new THREE.Clock();
+const audioForward = new THREE.Vector3();
 let minimapTimer = 0;
 function animate() {
   requestAnimationFrame(animate);
@@ -368,6 +415,17 @@ function animate() {
   // The compass follows the look direction in every mode, including the
   // annotated overview, so the top-left corner is never out of date.
   compass.update();
+
+  camera.getWorldDirection(audioForward);
+  const activeSector = debugMode ? null : world.getSectorAt(player.position.x, player.position.z);
+  forestAudio.update(delta, {
+    inForest: activeSector?.id === 'HEX_S',
+    rainEnabled: world.forestRain?.isEnabled ?? false,
+    birds: world.forestBirds?.birds ?? [],
+    birdOrigin: world.forestBirds?.group.position ?? null,
+    listenerPosition: camera.position,
+    cameraForward: audioForward,
+  });
   renderer.render(scene, debugMode ? overviewCamera : camera);
 
   // Keep the minimap marker current while the map is open, at a calm 12 Hz:
