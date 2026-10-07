@@ -9,6 +9,7 @@ import { buildForestRain } from './Rain.js';
 import { buildForestBirds } from './ForestBirds.js';
 import { createForestTerrain } from './ForestTerrain.js';
 import { createVolcanicTerrain } from './VolcanicTerrain.js';
+import { buildVolcanicFormations as createVolcanicFormationGroup } from './VolcanicFormations.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { installCooledCrust } from './CooledCrust.js';
@@ -342,6 +343,10 @@ export class HexMap {
     this.lavaPool = null;
     this.lavaFlow = null;
     this.lavaSecondaryFlow = null;
+    // Six large, static basalt formations are independent meshes seated on the
+    // final HEX_SE relief; they do not alter that terrain or any lava surface.
+    this.volcanicFormations = null;
+    this.majorVolcanicRocks = null;
     // ...and the only one with wildlife (see ForestBirds.js).
     this.forestBirds = null;
     this.birds = null;
@@ -357,6 +362,7 @@ export class HexMap {
 
     this.buildFloors();
     this.buildLava();
+    this.buildVolcanicFormations();
     this.buildDomeRoofs();
     this.buildSectorLighting();
     this.pineGrove = buildPineGrove(
@@ -429,6 +435,24 @@ export class HexMap {
       this.lavaSecondaryFlow.group.position.copy(this.volcanicLava.group.position);
       this.group.add(this.lavaSecondaryFlow.group);
     }
+  }
+
+  /**
+   * The major volcanic outcrops of HEX_SE: six static silhouettes placed on
+   * the baked ground, away from the gate aprons and the existing lava routes.
+   * The builder only samples the final terrain to seat each formation.
+   */
+  buildVolcanicFormations() {
+    const sector = this.sectorById.get('HEX_SE');
+    if (!sector) return null;
+
+    const formations = createVolcanicFormationGroup(this.volcanicTerrain, this.config);
+    if (!formations) return null;
+    formations.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
+    this.volcanicFormations = formations;
+    this.majorVolcanicRocks = formations;
+    this.group.add(formations);
+    return formations;
   }
 
   /**
