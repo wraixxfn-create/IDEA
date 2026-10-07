@@ -11,6 +11,7 @@ import { createForestTerrain } from './ForestTerrain.js';
 import { createVolcanicTerrain } from './VolcanicTerrain.js';
 import { buildVolcanicFormations as createVolcanicFormationGroup } from './VolcanicFormations.js';
 import { buildVolcanicRocks } from './VolcanicRocks.js';
+import { buildVolcanicDebris } from './VolcanicDebris.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { installCooledCrust } from './CooledCrust.js';
@@ -353,6 +354,13 @@ export class HexMap {
     // and the lava (see VolcanicRocks.js). Static, and it carves nothing.
     this.volcanicRocks = null;
     this.mediumVolcanicRocks = null;
+    // The small debris layer of HEX_SE: chips, splinters, little stones and
+    // rubble, drawn as instances of twelve shared geometries and scattered
+    // thinly along the crater's edges, the feet of the six formations, the
+    // banks of the molten rock and the steep slopes (see VolcanicDebris.js).
+    // Static, and it carves nothing either.
+    this.volcanicDebris = null;
+    this.smallVolcanicDebris = null;
     // ...and the only one with wildlife (see ForestBirds.js).
     this.forestBirds = null;
     this.birds = null;
@@ -370,6 +378,7 @@ export class HexMap {
     this.buildLava();
     this.buildVolcanicFormations();
     this.buildVolcanicRocks();
+    this.buildVolcanicDebris();
     this.buildDomeRoofs();
     this.buildSectorLighting();
     this.pineGrove = buildPineGrove(
@@ -483,6 +492,33 @@ export class HexMap {
     this.mediumVolcanicRocks = rocks;
     this.group.add(rocks);
     return rocks;
+  }
+
+  /**
+   * The small debris layer of HEX_SE: chips, broken fragments, little stones
+   * and volcanic rubble, drawn as instanced meshes that share twelve
+   * geometries and one material. The scatter keeps a low, capped density and
+   * spends almost all of its budget on the four places debris collects — the
+   * crater's edges, the feet of the six formations, the banks of the molten
+   * rock and the steep slopes — leaving the portal aprons, the direct routes,
+   * the crater floor and the open ash plains clear. It follows the medium
+   * rocks that are already standing (see VolcanicRocks.js) and changes nothing
+   * else in the sector.
+   */
+  buildVolcanicDebris() {
+    const sector = this.sectorById.get('HEX_SE');
+    if (!sector) return null;
+
+    const debris = buildVolcanicDebris(this.volcanicTerrain, this.config, {
+      formations: this.volcanicFormations,
+      rocks: this.volcanicRocks,
+    });
+    if (!debris) return null;
+    debris.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
+    this.volcanicDebris = debris;
+    this.smallVolcanicDebris = debris;
+    this.group.add(debris);
+    return debris;
   }
 
   /**
