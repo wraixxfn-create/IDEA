@@ -37,6 +37,37 @@ export const LAVA_FLOW_DEFAULTS = Object.freeze({
   ]),
 });
 
+/** One slim side-channel from the main flow to the southern low hollow. */
+export const LAVA_SECONDARY_FLOW_DEFAULTS = Object.freeze({
+  id: 'lava-secondary-flow-hex-se',
+  width: 2.8,
+  depth: 0.28,
+  minimumGrade: 0.012,
+  sampleSpacing: 0.8,
+  crossSegments: 10,
+  lift: 0.055,
+  seed: 0x5ec0da7,
+  // Attach to the south bank of the established flow, then arc around the
+  // basin vent before turning back into the separate southern low pocket.
+  attachmentDistance: 70,
+  attachmentSide: 1,
+  attachmentInset: 0.45,
+  sourceTaper: 7,
+  toeLength: 8,
+  path: Object.freeze([
+    Object.freeze({ x: 0, z: 0 }),
+    Object.freeze({ x: 4, z: -15 }),
+    Object.freeze({ x: 10, z: -29 }),
+    Object.freeze({ x: 17, z: -44 }),
+    Object.freeze({ x: 19, z: -58 }),
+    Object.freeze({ x: 15, z: -75 }),
+    Object.freeze({ x: 8, z: -91 }),
+    Object.freeze({ x: 0, z: -107 }),
+    Object.freeze({ x: -5, z: -122 }),
+    Object.freeze({ x: -6, z: -135 }),
+  ]),
+});
+
 const clamp01 = (n) => Math.max(0, Math.min(1, n));
 const mix = (a, b, t) => a + (b - a) * t;
 function smooth(a, b, n) {
@@ -132,6 +163,105 @@ export function planLavaFlow(terrain, pool, config = {}) {
     halfAngle: Math.atan2((mouth.left + mouth.right) * 0.5, Math.hypot(mouth.x - pool.x, mouth.z - pool.z)),
   };
   return { ...settings, width, depth, length, spacing, samples, sourceShoreline, sourceLevel, outletDistance, outlet, pool, bounds };
+}
+
+/**
+ * Plan the one secondary arm as a true branch of the existing HEX_SE flow.
+ * Its first point sits inside the parent's bank, its first few metres widen
+ * out of that shared mouth, and every later height follows the local relief
+ * without ever rising. This deliberately is not a second pool outlet.
+ */
+export function planLavaSecondaryFlow(terrain, parentFlow, config = {}) {
+  if (!terrain || !parentFlow || terrain.sectorId !== 'HEX_SE'
+    || config.lavaFlowEnabled === false
+    || config.lavaSecondaryFlowEnabled === false
+    || config.lavaSecondaryFlow === false
+    || config.lavaSecondaryFlow === null) return null;
+
+  const settings = { ...LAVA_SECONDARY_FLOW_DEFAULTS, ...(config.lavaSecondaryFlow ?? {}) };
+  if (!Array.isArray(settings.path) || settings.path.length < 2) return null;
+
+  const attachmentDistance = Math.max(parentFlow.outletDistance + 12,
+    Math.min(parentFlow.length - 12, settings.attachmentDistance));
+  if (!Number.isFinite(attachmentDistance) || attachmentDistance <= parentFlow.outletDistance) return null;
+  const attachment = parentFlow.samples.reduce((best, point) =>
+    Math.abs(point.s - attachmentDistance) < Math.abs(best.s - attachmentDistance) ? point : best,
+  parentFlow.samples[0]);
+  const side = settings.attachmentSide === 'left' || settings.attachmentSide < 0 ? -1 : 1;
+  const sideWidth = side < 0 ? attachment.left : attachment.right;
+  const inset = Math.max(0, Math.min(sideWidth * 0.75, settings.attachmentInset));
+  const sideFraction = sideWidth > 0 ? (sideWidth - inset) / sideWidth : 0;
+  const anchorX = attachment.x + attachment.nx * side * (sideWidth - inset);
+  const anchorZ = attachment.z + attachment.nz * side * (sideWidth - inset);
+  const bankY = Math.min(attachment.y, terrain.heightAt(anchorX, anchorZ) + parentFlow.lift);
+  const sourceLevel = mix(attachment.y, bankY, smooth(0.65, 1, sideFraction)) - 0.025;
+  const controls = settings.path.map((point) => new THREE.Vector3(anchorX + point.x, 0, anchorZ + point.z));
+  if (controls.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.z))) return null;
+
+  const curve = new THREE.CatmullRomCurve3(controls, false, 'centripetal');
+  curve.arcLengthDivisions = 600;
+  const length = curve.getLength();
+  if (length < 18) return null;
+  const count = Math.ceil(length / Math.max(0.5, settings.sampleSpacing));
+  const points = curve.getSpacedPoints(count);
+  const width = Math.max(1.1, Math.min(6, settings.width, parentFlow.width * 0.48));
+
+  // Keep the branch inside HEX_SE, away from each gate, and clear of the
+  // existing vents even after the lattice-sized shoulder around its bed is cut.
+  if (points.some((point) => distanceToHexEdge(point.x, point.z, terrain.radius) < width + 32
+    || terrain.gateAprons?.some((gate) => Math.hypot(point.x - gate.x, point.z - gate.z)
+      < gate.outer + width + 18)
+    || terrain.vents?.some((vent) => Math.hypot(point.x - vent.x, point.z - vent.z)
+      < vent.support + width * 0.5 + terrain.cellSize * 1.1 + 2))) return null;
+
+  const first = points[0];
+  const join = lavaFlowSampleAt(first.x, first.z, parentFlow);
+  if (!join || join.distance >= join.halfWidth) return null;
+  const last = points.at(-1);
+  if (terrain.heightAt(last.x, last.z) >= sourceLevel - 2) return null;
+
+  const spacing = length / count;
+  const depth = Math.max(0.12, Math.min(0.5, settings.depth));
+  const grade = Math.max(0.004, Math.min(0.04, settings.minimumGrade));
+  const samples = [];
+  for (let i = 0; i <= count; i += 1) {
+    const s = i * spacing;
+    const p = points[i];
+    const tangent = curve.getTangentAt(i / count).normalize();
+    const target = Math.min(sourceLevel - grade * s, terrain.heightAt(p.x, p.z) + depth);
+    const previous = samples.at(-1);
+    const y = previous ? Math.min(target, previous.y - grade * spacing) : sourceLevel;
+    const breadth = width * (0.92 + 0.24 * Math.sin(s * 0.105 + 0.7)
+      + 0.1 * Math.sin(s * 0.233 + 1.9));
+    const source = 0.14 + 0.86 * smooth(0, Math.max(3, settings.sourceTaper), s);
+    const toe = clamp01((s - (length - Math.max(4, settings.toeLength))) / Math.max(4, settings.toeLength));
+    const taper = source * Math.sqrt(Math.max(0, 1 - toe * toe));
+    const half = breadth * 0.5 * taper;
+    const left = half * (1 + 0.11 * noise(s * 0.31, settings.seed + 23)
+      + 0.055 * noise(s * 0.93, settings.seed + 47));
+    const right = half * (1 + 0.12 * noise(s * 0.27 + 5, settings.seed + 91)
+      + 0.05 * noise(s * 1.07, settings.seed + 331));
+    samples.push({ x: p.x, z: p.z, y, s, nx: -tangent.z, nz: tangent.x, left, right });
+  }
+
+  const bounds = new THREE.Box2();
+  for (const point of samples) bounds.expandByPoint(new THREE.Vector2(point.x, point.z));
+  bounds.expandByScalar(width + 36);
+  return {
+    ...settings,
+    id: settings.id,
+    width,
+    depth,
+    length,
+    spacing,
+    samples,
+    sourceLevel,
+    parentFlowId: parentFlow.id,
+    parentFlow,
+    pool: parentFlow.pool,
+    attachment: { x: anchorX, z: anchorZ, s: attachment.s, side },
+    bounds,
+  };
 }
 
 /** Nearest point on the single spine, shared by the bed and its cooled banks. */
@@ -284,7 +414,7 @@ export function buildLavaFlow(terrain, flow, config = {}) {
     indices.push(a, a + 1, tip);
   }
   const geometry = new THREE.BufferGeometry();
-  geometry.name = 'LavaFlowGeometry_HEX_SE';
+  geometry.name = `${flow.parentFlowId ? 'LavaSecondaryFlow' : 'LavaFlow'}Geometry_HEX_SE`;
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
@@ -300,15 +430,31 @@ export function buildLavaFlow(terrain, flow, config = {}) {
   }
   const material = createLavaMaterial(config);
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = 'LavaFlowMesh_HEX_SE';
+  const isBranch = Boolean(flow.parentFlowId);
+  const featureName = isBranch ? 'LavaSecondaryFlow' : 'LavaFlow';
+  mesh.name = `${featureName}Mesh_HEX_SE`;
   mesh.castShadow = false;
   mesh.receiveShadow = true;
-  mesh.userData = { sectorId: 'HEX_SE', surface: 'molten-lava', flowId: flow.id, lavaArea: area };
+  mesh.userData = {
+    sectorId: 'HEX_SE', surface: 'molten-lava', flowId: flow.id,
+    parentFlowId: flow.parentFlowId ?? null, lavaArea: area,
+  };
   const group = new THREE.Group();
-  group.name = 'LavaFlow_HEX_SE';
-  group.userData = { sectorId: 'HEX_SE', flowId: flow.id, poolId: flow.pool.id, meshes: 1,
-    animates: false, particles: 0, lights: 0, area };
+  group.name = `${featureName}_HEX_SE`;
+  group.userData = {
+    sectorId: 'HEX_SE', flowId: flow.id, parentFlowId: flow.parentFlowId ?? null,
+    poolId: flow.pool.id, meshes: 1, animates: false, particles: 0, lights: 0, area,
+  };
   group.add(mesh);
-  geometry.userData.lava = { flow: flow.id, length: flow.length, vertexCount, triangleCount: indices.length / 3, lavaArea: area };
+  geometry.userData.lava = {
+    flow: flow.id, parentFlow: flow.parentFlowId ?? null, length: flow.length,
+    vertexCount, triangleCount: indices.length / 3, lavaArea: area,
+  };
   return { group, mesh, material, geometry, flow, area, vertexCount, triangleCount: indices.length / 3 };
+}
+
+/** Build the branch with the same static strip geometry and cached lava material. */
+export function buildLavaSecondaryFlow(terrain, flow, config = {}) {
+  if (!flow?.parentFlowId) return null;
+  return buildLavaFlow(terrain, flow, config);
 }
