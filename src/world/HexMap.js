@@ -10,7 +10,7 @@ import { buildForestBirds } from './ForestBirds.js';
 import { createForestTerrain } from './ForestTerrain.js';
 import { createVolcanicTerrain } from './VolcanicTerrain.js';
 import { buildLavaPool } from './LavaPool.js';
-import { buildLavaFlow } from './LavaFlow.js';
+import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { createWindUniforms } from './wind.js';
 
 function createFloorGeometry(radius) {
@@ -327,11 +327,12 @@ export class HexMap {
     // HEX_S is the only sector with weather of its own (see Rain.js).
     this.forestRain = null;
     this.rain = null;
-    // HEX_SE carries the world's only lava: one pool in the floor of its main
-    // crater and a single downhill outlet (see LavaPool.js / LavaFlow.js).
+    // HEX_SE carries the world's only lava: one crater pool, its main outlet
+    // and one narrower branch (see LavaPool.js / LavaFlow.js).
     this.volcanicLava = null;
     this.lavaPool = null;
     this.lavaFlow = null;
+    this.lavaSecondaryFlow = null;
     // ...and the only one with wildlife (see ForestBirds.js).
     this.forestBirds = null;
     this.birds = null;
@@ -396,8 +397,8 @@ export class HexMap {
   }
 
   /**
-   * HEX_SE only: the existing pool and ONE winding flow into the lower basin.
-   * Two static meshes share one lava material. No extra rivers, rocks, smoke,
+   * HEX_SE only: the existing pool, its main outlet and one smaller side
+   * branch. Three static meshes share one lava material. No rocks, smoke,
    * particles, lights, damage, colliders or per-frame lava updates.
    */
   buildLava() {
@@ -413,6 +414,11 @@ export class HexMap {
     if (this.lavaFlow) {
       this.lavaFlow.group.position.copy(this.volcanicLava.group.position);
       this.group.add(this.lavaFlow.group);
+    }
+    this.lavaSecondaryFlow = buildLavaSecondaryFlow(terrain, terrain.lavaSecondaryFlow, this.config);
+    if (this.lavaSecondaryFlow) {
+      this.lavaSecondaryFlow.group.position.copy(this.volcanicLava.group.position);
+      this.group.add(this.lavaSecondaryFlow.group);
     }
   }
 

@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { ForestTerrain } from './ForestTerrain.js';
 import { carveVolcanicVents, planVolcanicVentLayout, ventShadeAt } from './VolcanicVents.js';
 import { carveLavaPool, lavaPoolShadeAt, planLavaPool } from './LavaPool.js';
-import { carveLavaFlow, lavaFlowShadeAt, planLavaFlow } from './LavaFlow.js';
+import {
+  carveLavaFlow,
+  lavaFlowShadeAt,
+  planLavaFlow,
+  planLavaSecondaryFlow,
+} from './LavaFlow.js';
 
 /**
  * VolcanicTerrain — the ground model of HEX_SE and its collision surface.
@@ -46,11 +51,12 @@ import { carveLavaFlow, lavaFlowShadeAt, planLavaFlow } from './LavaFlow.js';
  * keep exactly the shape this module baked and the vents ride in the same
  * surface the explorer stands on.
  *
- * The lava pool raises its own bed (src/world/LavaPool.js). One final, local
- * cut (src/world/LavaFlow.js) opens an outlet through the low saddle and joins
- * that pool to the lower basin. Both use the same terrain/collision lattice;
- * the rest of the relief stays put. Cooled margins shade the existing basalt,
- * without adding props, rocks, smoke, animation or gameplay effects.
+ * The lava pool raises its own bed (src/world/LavaPool.js). A local cut
+ * (src/world/LavaFlow.js) opens its main outlet through the low saddle, then
+ * one much narrower branch leaves that channel for the southern low hollow.
+ * Both use the same terrain/collision lattice; the rest of the relief stays
+ * put. Cooled margins shade the existing basalt without props, rocks, smoke,
+ * animation or gameplay effects.
  */
 
 function clamp01(value) {
@@ -333,7 +339,7 @@ export class VolcanicTerrain extends ForestTerrain {
     this.vents = planVolcanicVentLayout(config);
     this.ventReport = carveVolcanicVents(this, this.vents);
     // Keep the existing pool's bed and waterline. Its original shoreline is
-    // measured before the single flow opens an outlet in the enclosing bank.
+    // measured before the main outlet opens the enclosing bank.
     this.lavaPool = planLavaPool(config, {
       terrain: this,
       amplitude: this.amplitude,
@@ -341,8 +347,14 @@ export class VolcanicTerrain extends ForestTerrain {
     });
     this.lavaPoolReport = carveLavaPool(this, this.lavaPool);
     this.writeHeights();
+
+    // Bake the established outlet first. The smaller side-channel attaches to
+    // this carved spine and is the only secondary lava feature in HEX_SE.
     this.lavaFlow = planLavaFlow(this, this.lavaPool, config);
     this.lavaFlowReport = carveLavaFlow(this, this.lavaFlow);
+    this.writeHeights();
+    this.lavaSecondaryFlow = planLavaSecondaryFlow(this, this.lavaFlow, config);
+    this.lavaSecondaryFlowReport = carveLavaFlow(this, this.lavaSecondaryFlow);
     this.writeHeights();
     this.geometry.dispose();
     this.geometry = this.createGeometry();
@@ -592,6 +604,7 @@ export class VolcanicTerrain extends ForestTerrain {
     // pool yet; the real bake below shades them in.
     const vents = this.vents ?? [];
     const pool = this.lavaPool ?? null;
+    const secondaryFlow = this.lavaSecondaryFlow ?? null;
     for (let v = 0; v < this.vertexCount; v += 1) {
       const up = THREE.MathUtils.clamp(normals.getY(v), 1e-4, 1);
       const slope = Math.sqrt(Math.max(0, 1 - up * up)) / up;
@@ -602,6 +615,9 @@ export class VolcanicTerrain extends ForestTerrain {
         ? lavaPoolShadeAt(this.positions[v * 3], this.positions[v * 3 + 2], this.heights[v], pool)
         : null;
       const flow = lavaFlowShadeAt(this.positions[v * 3], this.positions[v * 3 + 2], this.heights[v], this.lavaFlow);
+      const branch = lavaFlowShadeAt(
+        this.positions[v * 3], this.positions[v * 3 + 2], this.heights[v], secondaryFlow,
+      );
       const tint = volcanicRockTintAt(
         this.positions[v * 3],
         this.positions[v * 3 + 2],
@@ -609,8 +625,8 @@ export class VolcanicTerrain extends ForestTerrain {
         slope,
         shade?.throat ?? 0,
         shade?.rim ?? 0,
-        Math.max(lava?.crust ?? 0, flow.crust),
-        Math.max(lava?.ember ?? 0, flow.ember),
+        Math.max(lava?.crust ?? 0, flow.crust, branch.crust),
+        Math.max(lava?.ember ?? 0, flow.ember, branch.ember),
       );
       colors.setXYZ(v, tint.r, tint.g, tint.b);
     }
@@ -625,6 +641,7 @@ export class VolcanicTerrain extends ForestTerrain {
     geometry.userData.lavaPool = pool?.id ?? null;
     geometry.userData.lavaLevel = pool?.level ?? null;
     geometry.userData.lavaFlow = this.lavaFlow?.id ?? null;
+    geometry.userData.lavaSecondaryFlow = secondaryFlow?.id ?? null;
     return geometry;
   }
 }
