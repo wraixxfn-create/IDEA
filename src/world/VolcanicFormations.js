@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BASALT_TONES, createVolcanicPropMaterial } from './VolcanicMaterials.js';
 import { makeRandom } from './random.js';
 
 /**
@@ -101,13 +102,10 @@ export const DEFAULT_VOLCANIC_FORMATIONS = Object.freeze([
   }),
 ]);
 
-const ROCK_TONES = Object.freeze([
-  0x33373e,
-  0x3e434a,
-  0x494e55,
-  0x555a61,
-  0x62676e,
-].map((hex) => new THREE.Color(hex)));
+// The sector's basalt, straight from the shared volcanic palette
+// (src/world/VolcanicMaterials.js): five facet tones of the same dark rock, so
+// a landmark spire is visibly cut from the ground it stands on.
+const ROCK_TONES = BASALT_TONES;
 
 const MASS_PROFILES = Object.freeze({
   // Columnar basalt: tall, faceted sides, a slight foot flare and a broken tip.
@@ -291,14 +289,9 @@ export function buildVolcanicFormations(terrain, config = {}) {
     collidable: false,
   };
 
-  const material = new THREE.MeshStandardMaterial({
-    name: 'MajorVolcanicBasalt_HEX_SE',
-    color: 0xffffff,
-    vertexColors: true,
+  const material = createVolcanicPropMaterial('MajorVolcanicBasalt_HEX_SE', {
     roughness: 0.97,
     metalness: 0.015,
-    flatShading: true,
-    side: THREE.DoubleSide,
   });
   const seedBase = config.volcanicFormationSeed ?? 0x7a11f0;
 

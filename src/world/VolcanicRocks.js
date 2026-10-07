@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BASALT_TONES, createVolcanicPropMaterial } from './VolcanicMaterials.js';
 import { distanceToHexEdge } from './ForestTerrain.js';
 import { lavaFlowSampleAt } from './LavaFlow.js';
 import { measureLavaPoolShoreline } from './LavaPool.js';
@@ -223,15 +224,10 @@ export const VOLCANIC_ROCK_DEFAULTS = Object.freeze({
 
 /* ---- Geometry ------------------------------------------------------------ */
 
-// The same five basalt tones the landmark formations are cut from, so a
+// The same five basalt tones of the shared volcanic palette
+// (src/world/VolcanicMaterials.js) the landmark formations are cut from, so a
 // medium rock reads as the same rock as the spire it gathers under.
-const ROCK_TONES = Object.freeze([
-  0x33373e,
-  0x3e434a,
-  0x494e55,
-  0x555a61,
-  0x62676e,
-].map((hex) => new THREE.Color(hex)));
+const ROCK_TONES = BASALT_TONES;
 
 function rotateXZ(x, z, angle) {
   const cos = Math.cos(angle);
@@ -806,14 +802,9 @@ export function buildVolcanicRocks(terrain, config = {}, options = {}) {
 
   // One material for every rock in the sector, and one geometry per shape cut:
   // the whole layer is twelve shared meshes drawn as instances.
-  const material = new THREE.MeshStandardMaterial({
-    name: 'MediumVolcanicBasalt_HEX_SE',
-    color: 0xffffff,
-    vertexColors: true,
+  const material = createVolcanicPropMaterial('MediumVolcanicBasalt_HEX_SE', {
     roughness: 0.96,
     metalness: 0.02,
-    flatShading: true,
-    side: THREE.DoubleSide,
   });
 
   const buckets = geometries.map(() => []);

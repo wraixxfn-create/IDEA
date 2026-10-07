@@ -279,10 +279,27 @@ export const MAP_CONFIG = Object.freeze({
   // rocky patches and shallow depressions over broad, walkable ash plains.
   // The rim — and a radial apron around every gate — fades back to the exact
   // shared floor height, so the sector stays seamless with its neighbours and
-  // every entrance stays level. This step is shape only: a simple gray/dark
-  // rock material, no particles.
-  volcanicRockColor: 0x4f5157,
-  volcanicRockDarkColor: 0x26282c,
+  // every entrance stays level.
+  //
+  // What that ground is *made of* is the volcanic material palette
+  // (src/world/VolcanicMaterials.js): six materials and no more — dark
+  // volcanic soil on the open plains, black basalt wherever the ground tips
+  // or a vent has blown it open, dark ash on the high flats, cooled lava over
+  // the crater floor and everywhere the lava has run, a narrow margin of
+  // slightly reddish heated rock against the molten rock, and the molten lava
+  // itself, which stays the one bright element of the sector. They are mixed
+  // per vertex from the relief that is already baked, so the palette adds no
+  // geometry, no props, no particles and no gameplay effect.
+  //
+  // `volcanicRockColor` is the tint multiplied over that whole mix (white
+  // leaves the palette exactly as authored) and `volcanicRockDarkColor` is the
+  // basalt band around the sector's rim. `volcanicHeatColor` /
+  // `volcanicHeatIntensity` are the faint emission the heated rock carries —
+  // deliberately a fraction of the lava's, so nothing competes with it.
+  volcanicRockColor: 0xffffff,
+  volcanicRockDarkColor: 0x191b1f,
+  volcanicHeatColor: 0xff3c0a,
+  volcanicHeatIntensity: 0.22,
   // 64 divisions keeps the lattice light (~15.7k vertices, ~24.6k faces —
   // under half the forest's density) while resolving features that are tens
   // of units across.

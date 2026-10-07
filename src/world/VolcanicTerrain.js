@@ -9,6 +9,7 @@ import {
   planLavaSecondaryFlow,
 } from './LavaFlow.js';
 import { planCooledCrust, writeCooledCrustAttribute } from './CooledCrust.js';
+import { VOLCANIC_MATERIAL_ORDER, volcanicSurfaceAt } from './VolcanicMaterials.js';
 
 /**
  * VolcanicTerrain — the ground model of HEX_SE and its collision surface.
@@ -259,53 +260,32 @@ function volcanicLatticeConfig(config = {}) {
 }
 
 /** ---- Rock shading -------------------------------------------------------
- * A simple gray/dark volcanic palette, per vertex: ash-gray plains, darker
- * rock pooling in the hollows and the basin, pale dry ash on the high flats
- * and slightly exposed scree wherever the ground tips. A vent adds two more
- * notes of its own — the throat reads darker than the ground around it and the
- * ring of ejecta paler, warm-grey scoria — so the small openings stay legible
- * on ground that is otherwise the same rock. Deliberately subtle and
- * desaturated: this pass is only about reading the shape of the relief.
+ * The sector's six volcanic materials (src/world/VolcanicMaterials.js), mixed
+ * per vertex out of the relief that is already there: dark volcanic soil over
+ * the open plains, black basalt wherever the ground tips or a vent has blown
+ * it open, dark ash settling on the high flats, cooled lava across the crater
+ * floor and everywhere the lava has run, and a narrow margin of slightly
+ * reddish heated rock against the molten lava itself — which stays the only
+ * bright thing in HEX_SE. The variation between them is a couple of slow
+ * weathering fields worth a few percent, not random colour.
  */
 
-const ROCK_BASE_TINT = new THREE.Color(0.97, 0.97, 1.0);
-const ROCK_DEEP_TINT = new THREE.Color(0.56, 0.57, 0.62);
-const ROCK_ASH_TINT = new THREE.Color(1.17, 1.16, 1.13);
-const ROCK_SCREE_TINT = new THREE.Color(0.8, 0.8, 0.84);
-const VENT_THROAT_TINT = new THREE.Color(0.42, 0.43, 0.47);
-const VENT_SCORIA_TINT = new THREE.Color(1.14, 1.07, 0.97);
-// The pool's own two notes: the cooled crust that hugs its shore (dark, and
-// nearly black where it has just chilled) and the ember the lava throws onto
-// the rock about to melt.
-const LAVA_CRUST_TINT = new THREE.Color(0.44, 0.38, 0.35);
-const LAVA_EMBER_TINT = new THREE.Color(1.24, 0.72, 0.44);
 const rockScratch = new THREE.Color();
 
-export function volcanicRockTintAt(x, z, height, slope = 0, ventThroat = 0, ventRim = 0, lavaCrust = 0, lavaEmber = 0) {
-  const mottle = (
-    Math.sin(x * 0.043 + 2.1) * Math.cos(z * 0.037 - 1.3)
-    + 0.5 * Math.sin((x + z) * 0.021 + 0.6)
-  ) / 1.5;
-  const hollowAmount = THREE.MathUtils.smoothstep(-height, 1, 9);
-  const flatness = 1 - clamp01(slope / 0.5);
-  const ashAmount = THREE.MathUtils.smoothstep(height, 3.5, 13) * (0.4 + 0.6 * flatness);
-  const screeAmount = THREE.MathUtils.smoothstep(slope, 0.26, 0.6);
+/**
+ * The palette blend for one point of the ground, as the terrain sees it.
+ * Everything this takes already exists: the relief's own height and slope, the
+ * shading the vents wrote, and how close the lava is. Nothing here places a
+ * feature — it only decides which of the six volcanic materials is showing.
+ */
+export function volcanicSurfaceSampleAt(x, z, height, slope = 0, ventThroat = 0, ventRim = 0, lavaCrust = 0, lavaEmber = 0) {
+  return volcanicSurfaceAt({ x, z, height, slope, ventThroat, ventRim, lavaCrust, lavaEmber });
+}
 
-  rockScratch.copy(ROCK_BASE_TINT);
-  rockScratch.lerp(ROCK_DEEP_TINT, hollowAmount * 0.6);
-  rockScratch.lerp(ROCK_ASH_TINT, ashAmount * 0.55);
-  rockScratch.lerp(ROCK_SCREE_TINT, screeAmount * 0.6);
-  // A vent's throat holds the dark, and its ring of ejecta catches the light.
-  rockScratch.lerp(VENT_THROAT_TINT, clamp01(ventThroat) * 0.55);
-  rockScratch.lerp(VENT_SCORIA_TINT, clamp01(ventRim) * 0.45);
-  // The lava pool writes the first step of its own transition onto the rock:
-  // the cooled crust of its shore, with a faint heat bleeding out of the
-  // waterline. Both are zero further than a few units from the pool.
-  rockScratch.lerp(LAVA_CRUST_TINT, clamp01(lavaCrust) * 0.82);
-  rockScratch.lerp(LAVA_EMBER_TINT, clamp01(lavaEmber) * 0.5);
-  const grain = 1 + mottle * 0.05;
-  rockScratch.multiplyScalar(grain);
-  return rockScratch;
+/** The blended albedo only — the vertex colour the ground is drawn with. */
+export function volcanicRockTintAt(x, z, height, slope = 0, ventThroat = 0, ventRim = 0, lavaCrust = 0, lavaEmber = 0) {
+  const sample = volcanicSurfaceSampleAt(x, z, height, slope, ventThroat, ventRim, lavaCrust, lavaEmber);
+  return rockScratch.copy(sample.color);
 }
 
 /** ---- The terrain -------------------------------------------------------- */
@@ -619,6 +599,12 @@ export class VolcanicTerrain extends ForestTerrain {
     const vents = this.vents ?? [];
     const pool = this.lavaPool ?? null;
     const secondaryFlow = this.lavaSecondaryFlow ?? null;
+    // Two floats per vertex — the finish and the heat — read by the sector's
+    // own ground material. Shading data only: no vertex moves in this pass.
+    const surface = new Float32Array(this.vertexCount * 2);
+    const mix = {
+      darkSoil: 0, blackBasalt: 0, darkAsh: 0, cooledLava: 0, heatedRock: 0,
+    };
     for (let v = 0; v < this.vertexCount; v += 1) {
       const up = THREE.MathUtils.clamp(normals.getY(v), 1e-4, 1);
       const slope = Math.sqrt(Math.max(0, 1 - up * up)) / up;
@@ -632,22 +618,41 @@ export class VolcanicTerrain extends ForestTerrain {
       const branch = lavaFlowShadeAt(
         this.positions[v * 3], this.positions[v * 3 + 2], this.heights[v], secondaryFlow,
       );
-      const tint = volcanicRockTintAt(
-        this.positions[v * 3],
-        this.positions[v * 3 + 2],
-        this.heights[v],
+      const sample = volcanicSurfaceAt({
+        x: this.positions[v * 3],
+        z: this.positions[v * 3 + 2],
+        height: this.heights[v],
         slope,
-        shade?.throat ?? 0,
-        shade?.rim ?? 0,
-        Math.max(lava?.crust ?? 0, flow.crust, branch.crust),
-        Math.max(lava?.ember ?? 0, flow.ember, branch.ember),
-      );
+        ventThroat: shade?.throat ?? 0,
+        ventRim: shade?.rim ?? 0,
+        lavaCrust: Math.max(lava?.crust ?? 0, flow.crust, branch.crust),
+        lavaEmber: Math.max(lava?.ember ?? 0, flow.ember, branch.ember),
+      });
+      const tint = sample.color;
       colors.setXYZ(v, tint.r, tint.g, tint.b);
+      // The finish and the heat the blend asked for: ash is matte, soil is
+      // matte-dusty, basalt a touch tighter and chilled lava almost glassy,
+      // and only rock the lava is still cooking carries any emission at all.
+      surface[v * 2] = sample.roughness;
+      surface[v * 2 + 1] = sample.heat;
+      if (sample.weights.darkSoil >= 0.5) mix.darkSoil += 1;
+      if (sample.weights.blackBasalt >= 0.5) mix.blackBasalt += 1;
+      if (sample.weights.darkAsh >= 0.5) mix.darkAsh += 1;
+      if (sample.weights.cooledLava >= 0.5) mix.cooledLava += 1;
+      if (sample.weights.heatedRock >= 0.25) mix.heatedRock += 1;
     }
     colors.needsUpdate = true;
+    geometry.setAttribute('aVolcanicSurface', new THREE.BufferAttribute(surface, 2));
 
     geometry.userData.terrain = 'baked-hex-lattice-volcanic';
     geometry.userData.biome = 'volcanic-rock';
+    // Which of the six materials the sector actually ended up wearing, as the
+    // share of vertices each one dominates. Diagnostics for the material pass;
+    // nothing reads it at runtime.
+    geometry.userData.materials = VOLCANIC_MATERIAL_ORDER.slice();
+    geometry.userData.materialMix = this.vertexCount > 0
+      ? Object.fromEntries(Object.entries(mix).map(([id, count]) => [id, count / this.vertexCount]))
+      : mix;
     // During the base constructor's placeholder bake the aprons do not exist
     // yet; the real bake below overwrites the count.
     geometry.userData.gateAprons = this.gateAprons?.length ?? 0;
