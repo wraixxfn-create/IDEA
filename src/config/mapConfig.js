@@ -299,6 +299,10 @@ export const MAP_CONFIG = Object.freeze({
   volcanicTerrainLacunarity: 2.05,
   volcanicTerrainWarp: 24,
   volcanicTerrainSeed: 0xba5a1700,
+  // Six static, large-scale basalt formations act as isolated landmarks in
+  // HEX_SE. They are visual props seated on the baked relief; this switch only
+  // adds or removes those formations and never changes the terrain or lava.
+  volcanicFormationsEnabled: true,
   // Flat approach kept clear around each portal centre: fully flat inside
   // `inner`, relief back in full by `outer` (sector-local units).
   volcanicGateApronInner: 19,
