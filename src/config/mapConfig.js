@@ -314,6 +314,19 @@ export const MAP_CONFIG = Object.freeze({
   // clearances, seed) are plain data in `VOLCANIC_ROCK_DEFAULTS` and can be
   // overridden through `volcanicRocks`.
   volcanicRocksEnabled: true,
+  // The small debris layer of HEX_SE (src/world/VolcanicDebris.js): the chips,
+  // broken basalt fragments, little stones and volcanic rubble that gather
+  // along the crater's edges, at the feet of the six large formations, on the
+  // banks of the lava channels and on ground steep enough to hold scree. It is
+  // a low-density scatter with a hard per-cell cap, built from twelve shared
+  // geometries drawn as instances, so it never turns the ground into rubble.
+  // Like the medium rocks it only adds static, non-colliding props: no carve,
+  // no gameplay system, and the terrain, vents, lava and cooled crust are
+  // untouched. Its own numbers (count, sizes, zone weights, bands, clearances,
+  // seed) are plain data in `VOLCANIC_DEBRIS_DEFAULTS` and can be overridden
+  // through `volcanicDebris`; `volcanicDebrisEnabled: false` (or
+  // `volcanicDebris: false` / `null`) removes the layer without a trace.
+  volcanicDebrisEnabled: true,
   // Flat approach kept clear around each portal centre: fully flat inside
   // `inner`, relief back in full by `outer` (sector-local units).
   volcanicGateApronInner: 19,
