@@ -15,6 +15,7 @@ import { buildVolcanicDebris } from './VolcanicDebris.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { installCooledCrust } from './CooledCrust.js';
+import { createVolcanicBorderMaterial, createVolcanicGroundMaterial } from './VolcanicMaterials.js';
 import { createWindUniforms } from './wind.js';
 
 function createFloorGeometry(radius) {
@@ -238,29 +239,21 @@ export class HexMap {
       roughness: 1,
       metalness: 0,
     });
-    // A simple gray/dark volcanic rock for HEX_SE: the relief is shaded per
-    // vertex (ash plains, darker hollows, pale heights), the material itself
-    // stays a plain desaturated basalt — except where the sector's own lava has
-    // chilled against it. The cooled crust below is the one texture this
-    // material carries, and it is blended in by the terrain's own lattice.
-    this.volcanicRockMaterial = new THREE.MeshStandardMaterial({
-      name: 'VolcanicRockMaterial_HEX_SE',
-      color: config.volcanicRockColor ?? 0x4f5157,
-      vertexColors: true,
-      roughness: 0.95,
-      metalness: 0.04,
-    });
+    // The volcanic materials of HEX_SE (src/world/VolcanicMaterials.js): dark
+    // volcanic soil, black basalt, dark ash, cooled lava and a thin margin of
+    // slightly reddish heated rock, all mixed per vertex by the terrain's own
+    // bake and drawn here by one material. The mix also carries a finish and a
+    // heat per vertex, so ash stays matte and chilled lava stays glassy without
+    // a second draw call. The molten lava keeps its own, brighter material.
+    this.volcanicRockMaterial = createVolcanicGroundMaterial(config);
     // The crust the existing lava left on the ground around it: dark plates,
     // cracked sections and a dull red heat, measured from the pool's shoreline
     // and both channels, and drawn by this same material on this same mesh. No
-    // new geometry, no new draw call, no animation and no gameplay effect.
+    // new geometry, no new draw call, no animation and no gameplay effect. It
+    // is installed last on purpose, so where the crust is, the crust decides.
     this.cooledCrust = this.volcanicTerrain.cooledCrust ?? null;
     installCooledCrust(this.volcanicRockMaterial, this.cooledCrust, config);
-    this.volcanicBorderMaterial = new THREE.MeshStandardMaterial({
-      color: config.volcanicRockDarkColor ?? 0x26282c,
-      roughness: 1,
-      metalness: 0,
-    });
+    this.volcanicBorderMaterial = createVolcanicBorderMaterial(config);
     this.forestLeafMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       vertexColors: true,
@@ -584,7 +577,7 @@ export class HexMap {
       const color = isForest
         ? (this.config.forestSoilColor ?? 0x4f3829)
         : isVolcanic
-          ? (this.config.volcanicRockColor ?? 0x4f5157)
+          ? (this.config.volcanicRockColor ?? 0xffffff)
           : (this.config.sectorColors?.[sector.id]
             ?? getSectorColor(sector.id, sector.order));
       const sectorFloorMaterial = isForest
