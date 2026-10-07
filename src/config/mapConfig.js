@@ -303,6 +303,17 @@ export const MAP_CONFIG = Object.freeze({
   // HEX_SE. They are visual props seated on the baked relief; this switch only
   // adds or removes those formations and never changes the terrain or lava.
   volcanicFormationsEnabled: true,
+  // The medium rock layer (src/world/VolcanicRocks.js): a limited, seeded
+  // collection of knee- to chest-high rocks built from twelve shared
+  // geometries and drawn as instanced meshes. It gathers around the crater
+  // rim, the six formations, the slopes and the lava banks, and it keeps the
+  // portal aprons, the direct routes, the crater floor and the open plains
+  // clear. This switch only adds or removes those rocks: nothing is carved, no
+  // collider is added, and the terrain, vents, lava and cooled crust are
+  // untouched. The scatter's own numbers (count, sizes, zone weights, bands,
+  // clearances, seed) are plain data in `VOLCANIC_ROCK_DEFAULTS` and can be
+  // overridden through `volcanicRocks`.
+  volcanicRocksEnabled: true,
   // Flat approach kept clear around each portal centre: fully flat inside
   // `inner`, relief back in full by `outer` (sector-local units).
   volcanicGateApronInner: 19,
