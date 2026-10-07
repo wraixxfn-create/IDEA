@@ -47,10 +47,13 @@ function makePlainTerrain(config = MAP_CONFIG) {
   });
 }
 
+// Test the original closed-pool bake independently of the later outlet cut.
+// The default world below still includes the flow; lavaFlow.test.js verifies
+// the connected pool/flow and the changes confined to its spillway.
 function makeTerrain(config = MAP_CONFIG) {
   return new VolcanicTerrain({
     radius: RADIUS,
-    config,
+    config: { ...config, lavaFlowEnabled: false },
     sectorId: 'HEX_SE',
     gateAprons: hexSeGateAprons(),
   });

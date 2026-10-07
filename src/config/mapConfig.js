@@ -311,9 +311,9 @@ export const MAP_CONFIG = Object.freeze({
   // The sector's single lava pool (src/world/LavaPool.js): one level sheet of
   // molten rock in the floor of the main crater, its outline where the baked
   // crater bowl crosses it, ringed by the cooled bank of crust it threw up
-  // around its own edge. Nothing else in HEX_SE carries lava — no rivers, no
-  // second pool, no vents of molten rock — and the pool is deliberately
-  // inert: no animation, no particles, no smoke, no light, no damage.
+  // around its own edge. One narrow lava flow now leaves that pool through a
+  // spillway into the lower basin; there are no other rivers or pools. Both
+  // are inert: no animation, no particles, no smoke, no light, no damage.
   // `lavaPool` is plain data (placement, depth, bank, mesh resolution) and
   // `false` removes the pool outright; `lavaPoolEnabled: false` does the same
   // from the switchboard. The material below is reusable on purpose: any later
@@ -336,6 +336,11 @@ export const MAP_CONFIG = Object.freeze({
     segments: 160,
     rings: 28,
   }),
+  // Exactly one unbranched outlet, authored in LavaFlow.js relative to the
+  // existing pool. Only its narrow spillway/banks touch the terrain. Disabling
+  // the pool also removes the flow; this switch keeps the original pool alone.
+  lavaFlowEnabled: true,
+  lavaFlow: Object.freeze({ width: 9, depth: 0.38 }),
   // The lava material itself: a static, emissive, vertex-coloured surface. The
   // sheet's own vertex colours carry the heat (dark crust at the margin, molten
   // rock in the middle, rafts of cooled skin between) and `lavaCrustTile` is

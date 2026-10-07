@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ForestTerrain } from './ForestTerrain.js';
 import { carveVolcanicVents, planVolcanicVentLayout, ventShadeAt } from './VolcanicVents.js';
 import { carveLavaPool, lavaPoolShadeAt, planLavaPool } from './LavaPool.js';
+import { carveLavaFlow, lavaFlowShadeAt, planLavaFlow } from './LavaFlow.js';
 
 /**
  * VolcanicTerrain — the ground model of HEX_SE and its collision surface.
@@ -45,12 +46,11 @@ import { carveLavaPool, lavaPoolShadeAt, planLavaPool } from './LavaPool.js';
  * keep exactly the shape this module baked and the vents ride in the same
  * surface the explorer stands on.
  *
- * The last pass is the lava: `carveLavaPool` (src/world/LavaPool.js) raises the
- * ground inside the crater that the sector's single lava pool covers onto the
- * bed its molten sheet ponds over — and nothing else, so the crater, the vents
- * and every statistic of the relief above the waterline stay exactly as baked.
- * The rock around the shore is shaded with the pool's own cooled margin, which
- * is where the transition into the lava starts.
+ * The lava pool raises its own bed (src/world/LavaPool.js). One final, local
+ * cut (src/world/LavaFlow.js) opens an outlet through the low saddle and joins
+ * that pool to the lower basin. Both use the same terrain/collision lattice;
+ * the rest of the relief stays put. Cooled margins shade the existing basalt,
+ * without adding props, rocks, smoke, animation or gameplay effects.
  */
 
 function clamp01(value) {
@@ -332,17 +332,17 @@ export class VolcanicTerrain extends ForestTerrain {
     // already built (the crater above all) can move.
     this.vents = planVolcanicVentLayout(config);
     this.ventReport = carveVolcanicVents(this, this.vents);
-    // The lava pool of the main crater (src/world/LavaPool.js) is the last
-    // thing to touch the lattice, and the least: it raises the ground the lava
-    // covers onto the bed the molten sheet ponds over, and leaves every vertex
-    // above the waterline exactly where the crater put it. The crater, the
-    // vents and the rest of the sector cannot move because of it.
+    // Keep the existing pool's bed and waterline. Its original shoreline is
+    // measured before the single flow opens an outlet in the enclosing bank.
     this.lavaPool = planLavaPool(config, {
       terrain: this,
       amplitude: this.amplitude,
       crater: this.layout.crater,
     });
     this.lavaPoolReport = carveLavaPool(this, this.lavaPool);
+    this.writeHeights();
+    this.lavaFlow = planLavaFlow(this, this.lavaPool, config);
+    this.lavaFlowReport = carveLavaFlow(this, this.lavaFlow);
     this.writeHeights();
     this.geometry.dispose();
     this.geometry = this.createGeometry();
@@ -601,6 +601,7 @@ export class VolcanicTerrain extends ForestTerrain {
       const lava = pool
         ? lavaPoolShadeAt(this.positions[v * 3], this.positions[v * 3 + 2], this.heights[v], pool)
         : null;
+      const flow = lavaFlowShadeAt(this.positions[v * 3], this.positions[v * 3 + 2], this.heights[v], this.lavaFlow);
       const tint = volcanicRockTintAt(
         this.positions[v * 3],
         this.positions[v * 3 + 2],
@@ -608,8 +609,8 @@ export class VolcanicTerrain extends ForestTerrain {
         slope,
         shade?.throat ?? 0,
         shade?.rim ?? 0,
-        lava?.crust ?? 0,
-        lava?.ember ?? 0,
+        Math.max(lava?.crust ?? 0, flow.crust),
+        Math.max(lava?.ember ?? 0, flow.ember),
       );
       colors.setXYZ(v, tint.r, tint.g, tint.b);
     }
@@ -623,6 +624,7 @@ export class VolcanicTerrain extends ForestTerrain {
     geometry.userData.vents = vents.length;
     geometry.userData.lavaPool = pool?.id ?? null;
     geometry.userData.lavaLevel = pool?.level ?? null;
+    geometry.userData.lavaFlow = this.lavaFlow?.id ?? null;
     return geometry;
   }
 }
