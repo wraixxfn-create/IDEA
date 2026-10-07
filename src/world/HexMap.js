@@ -10,6 +10,7 @@ import { buildForestBirds } from './ForestBirds.js';
 import { createForestTerrain } from './ForestTerrain.js';
 import { createVolcanicTerrain } from './VolcanicTerrain.js';
 import { buildVolcanicFormations as createVolcanicFormationGroup } from './VolcanicFormations.js';
+import { buildVolcanicRocks } from './VolcanicRocks.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { installCooledCrust } from './CooledCrust.js';
@@ -347,6 +348,11 @@ export class HexMap {
     // final HEX_SE relief; they do not alter that terrain or any lava surface.
     this.volcanicFormations = null;
     this.majorVolcanicRocks = null;
+    // The medium rock layer of HEX_SE: a limited, seeded collection of small
+    // instanced rocks gathered around the crater, the formations, the slopes
+    // and the lava (see VolcanicRocks.js). Static, and it carves nothing.
+    this.volcanicRocks = null;
+    this.mediumVolcanicRocks = null;
     // ...and the only one with wildlife (see ForestBirds.js).
     this.forestBirds = null;
     this.birds = null;
@@ -363,6 +369,7 @@ export class HexMap {
     this.buildFloors();
     this.buildLava();
     this.buildVolcanicFormations();
+    this.buildVolcanicRocks();
     this.buildDomeRoofs();
     this.buildSectorLighting();
     this.pineGrove = buildPineGrove(
@@ -453,6 +460,29 @@ export class HexMap {
     this.majorVolcanicRocks = formations;
     this.group.add(formations);
     return formations;
+  }
+
+  /**
+   * The medium rock layer of HEX_SE: one limited, seeded collection of small
+   * basalt rocks, drawn as instanced meshes that share twelve geometries and
+   * one material. The scatter gathers around the crater's rim, the skirts of
+   * the six formations, the slopes of the massif and the banks of the lava,
+   * and it leaves the portal aprons, the direct routes, the crater floor and
+   * the open plains clear. Nothing else in the sector is touched by it.
+   */
+  buildVolcanicRocks() {
+    const sector = this.sectorById.get('HEX_SE');
+    if (!sector) return null;
+
+    const rocks = buildVolcanicRocks(this.volcanicTerrain, this.config, {
+      formations: this.volcanicFormations,
+    });
+    if (!rocks) return null;
+    rocks.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
+    this.volcanicRocks = rocks;
+    this.mediumVolcanicRocks = rocks;
+    this.group.add(rocks);
+    return rocks;
   }
 
   /**
