@@ -444,6 +444,18 @@ export const MAP_CONFIG = Object.freeze({
   // each one confined to its own footprint and authored under the walkable
   // slope limit, so they reshape their own patch of ground and nothing else.
   // `volcanicVents` replaces that list (`[]` leaves the field vent-free).
+  // The subtle smoke and steam of HEX_SE (src/world/VolcanicSmoke.js): a few
+  // dark plumes rising from the crater, from the breach the lava leaves it by
+  // and from three small vents, and a few pale wisps of steam over two cracks
+  // and the hot margins of the lava. Every source is anchored to a feature the
+  // terrain already carries, and the whole layer is instanced billboards driven
+  // by one clock on the GPU: two draw calls, no collider, no light, no damage,
+  // no sound and no gameplay effect. It changes nothing in the terrain, the
+  // rocks, the debris or the lava. `volcanicSmokeEnabled: false` (or
+  // `volcanicSmoke: false` / `null`) removes it without a trace; the look and
+  // the source list are plain data in `VOLCANIC_SMOKE_DEFAULTS`, overridable
+  // through `volcanicSmoke`.
+  volcanicSmokeEnabled: true,
   sectorColors: SECTOR_COLORS,
 });
 
