@@ -8,6 +8,7 @@ import {
   planLavaFlow,
   planLavaSecondaryFlow,
 } from './LavaFlow.js';
+import { planCooledCrust, writeCooledCrustAttribute } from './CooledCrust.js';
 
 /**
  * VolcanicTerrain — the ground model of HEX_SE and its collision surface.
@@ -57,6 +58,14 @@ import {
  * Both use the same terrain/collision lattice; the rest of the relief stays
  * put. Cooled margins shade the existing basalt without props, rocks, smoke,
  * animation or gameplay effects.
+ *
+ * The ground immediately around that lava then wears its crust
+ * (src/world/CooledCrust.js): a black, cracked, irregular plate field measured
+ * from the pool's own shoreline and from both channel spines, carrying a dull
+ * red heat next to the molten rock and breaking up into bare basalt a few units
+ * further out. It is planned here, once the lava is final, and it is written as
+ * one attribute on this same lattice — so the crust changes what the rock looks
+ * like beside the lava and not one float of what the rock is.
  */
 
 function clamp01(value) {
@@ -356,6 +365,11 @@ export class VolcanicTerrain extends ForestTerrain {
     this.lavaSecondaryFlow = planLavaSecondaryFlow(this, this.lavaFlow, config);
     this.lavaSecondaryFlowReport = carveLavaFlow(this, this.lavaSecondaryFlow);
     this.writeHeights();
+    // The cooled crust is measured from the lava that is now final — the pool's
+    // own shoreline and both channel spines — and it moves nothing: it writes
+    // one attribute onto the lattice the ground is already drawn with, so the
+    // heights, the collision surface and every statistic above stay as baked.
+    this.cooledCrust = planCooledCrust(this, config);
     this.geometry.dispose();
     this.geometry = this.createGeometry();
   }
@@ -642,6 +656,19 @@ export class VolcanicTerrain extends ForestTerrain {
     geometry.userData.lavaLevel = pool?.level ?? null;
     geometry.userData.lavaFlow = this.lavaFlow?.id ?? null;
     geometry.userData.lavaSecondaryFlow = secondaryFlow?.id ?? null;
+    // The cooled crust of that lava: one four-float attribute on this same
+    // lattice — coverage, heat and the crust tile's UV — written only where the
+    // pool and the two channels already are, and read by the sector's own
+    // material. No vertex moves, so the ground the eye sees and the ground the
+    // feet stand on stay exactly the surface the bake above produced.
+    const crust = this.cooledCrust ?? null;
+    const crustReport = crust ? writeCooledCrustAttribute(this, crust) : null;
+    if (crustReport) geometry.setAttribute('aCooledCrust', crustReport.attribute);
+    this.cooledCrustReport = crustReport;
+    geometry.userData.cooledCrust = crust?.id ?? null;
+    geometry.userData.cooledCrustVertices = crustReport?.vertices ?? 0;
+    geometry.userData.cooledCrustShare = crustReport?.share ?? 0;
+    geometry.userData.cooledCrustHeat = crustReport?.hottest ?? 0;
     return geometry;
   }
 }

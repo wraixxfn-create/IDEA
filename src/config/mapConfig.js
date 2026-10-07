@@ -361,6 +361,38 @@ export const MAP_CONFIG = Object.freeze({
   lavaCrustCells: 7,
   lavaCrustTextureSize: 256,
   lavaCrustSeed: 0x1a7a5eed,
+  // The cooled crust on the *ground* around that lava (src/world/CooledCrust.js):
+  // dark black plates, cracked sections between them and a dull red heat that
+  // survives next to the molten rock. It is measured from the lava that already
+  // exists — the pool's own shoreline and both channel spines — and it is drawn
+  // by the sector's own rock material on the sector's own mesh, so it adds no
+  // geometry, no draw call, no rock props, no light, no animation and no
+  // gameplay effect. `cooledCrustEnabled: false` (or `cooledCrust: false`)
+  // leaves the ground exactly as the bake before it made it; disabling the lava
+  // it belongs to removes it too. The band widths, the plate break-up and the
+  // heat are plain data in `COOLED_CRUST_DEFAULTS`, overridable per sector
+  // through `cooledCrust`.
+  cooledCrustEnabled: true,
+  cooledCrust: Object.freeze({
+    // How far the crust crawls out of the lava, and how much of that run it
+    // spends breaking into plates instead of lying as one sheet (sector units).
+    pool: Object.freeze({ reach: 13, heatReach: 6.5 }),
+    channel: Object.freeze({ reach: 3.2, reachPerWidth: 0.75, heatReach: 3.6 }),
+    branch: Object.freeze({ reach: 1.6, reachPerWidth: 0.95, heatReach: 2.5 }),
+  }),
+  // The crust's own look: one seamless tile pair (dark plates for the albedo,
+  // warm cracks for the emission), repeated every `cooledCrustTile` units.
+  // `cooledCrustWarmth` is multiplied into the crust where it is still hot, and
+  // `cooledCrustRoughness` is the glassier finish a chilled skin has over ash.
+  cooledCrustColor: 0xffffff,
+  cooledCrustWarmth: 0xffa070,
+  cooledCrustEmissive: 0xff4d10,
+  cooledCrustEmissiveIntensity: 0.5,
+  cooledCrustRoughness: 0.74,
+  cooledCrustTile: 12,
+  cooledCrustCells: 5,
+  cooledCrustTextureSize: 256,
+  cooledCrustSeed: 0xc001ed5,
   // The small vents that are cut into that landscape afterwards are plain data
   // too (`DEFAULT_VOLCANIC_VENTS` in src/world/VolcanicVents.js): seven seeded
   // openings — round throats, a shallow silted dish and two narrow cracks —
