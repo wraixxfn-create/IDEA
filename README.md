@@ -200,7 +200,18 @@ One **smaller secondary channel** now branches from the main flow's south bank. 
 - **Dark and hot, without being black or red.** The cold palette sits between roughly 0.08 and 0.3 luminance and never reaches pure black, and the warmth is spent only where heat actually is: a thin emissive margin at the lava's edge and the lip of a vent throat, at a fraction of the lava's own brightness. **The molten lava stays the one bright element of the sector.**
 - **The props are cut from the same rock.** The landmark formations, the medium rocks and the small debris take their facet tones from the palette's shared `BASALT_TONES`, so a boulder reads as a piece of the ground it sits on. Tints ride in `mapConfig`'s `volcanicRockColor`, `volcanicRockDarkColor`, `volcanicHeatColor` and `volcanicHeatIntensity`.
 
-Run the topology, terrain, formations, medium rocks, small debris, vents, lava pool, flow and cooled crust, sky, rain, undergrowth, birds, map overlay, map drawing, compass, character and controller checks with:
+### The volcanic smoke and steam
+
+`src/world/VolcanicSmoke.js` adds the breath of the field and nothing else: **five columns of dark smoke** and **four thin wisps of steam**, **248 puffs** in all. It is the only animated layer of HEX_SE. The terrain, the rocks, the debris, the lava and the crust stay exactly what they are with it on or off, and a test holds the sector to that.
+
+- **The sources are cut from features the terrain already has.** The crater's own vent over the lake is the tallest column, about 40 units high. The breach where the lava leaves the crater sends up a smaller plume beside the outflow, and three small vents (the basin throat, the plain opening and the dyke opening) each send up a thin thread of 12 to 16 puffs. Steam hangs over the spines of the dyke and south fissures, along the slim branch channel and along the pool's eastern shore. Each source is resolved against the baked ground at build time, so a puff always rises from the rock or the lava it is named for.
+- **It rises rather than drifts.** A puff starts at its origin, climbs at a near-even pace, leans with the breeze, meanders, grows and dissolves over the last part of its life. Every new loop of a puff draws its heading, spread and noise offset afresh from a hash of its loop number, so a column keeps shifting and never repeats on a visible period.
+- **Two looks, one shape.** Smoke is dark, lit from the sunward side and warmed near its foot by the lava, and each puff lives 9 to 14 seconds. Steam is paler, thinner and smaller, lives 3 to 5 seconds and climbs only about 5 to 7 units. It is drawn a little taller than it is wide, so its edges stay stringy and it never reads as a second, paler smoke.
+- **The sector stays open.** Puffs fade out as they come within about 7 units of the camera and dissolve again as they near 240 units, so none sits in the lens. No plume stands over a gate route or a portal apron, and all of the plumes together cover at most about 2.5% of HEX_SE's ground.
+- **Cheap by construction.** Each kind is one instanced billboard mesh, so the whole effect costs **two draw calls**. The two materials share one quad, one 128-texel noise tile and one clock, and the CPU writes a single float per frame. There are no emitter objects, colliders, lights, sounds or damage, and nothing in the physics changes.
+- **The overview and the switches.** The F3 overview steps the plumes aside, as it does the mist and the rain. `volcanicSmokeEnabled: false` removes the effect without a trace. `volcanicSmoke` overrides the look or the source list, and the defaults are plain data in `VOLCANIC_SMOKE_DEFAULTS`.
+
+Run the topology, terrain, formations, medium rocks, small debris, vents, lava pool, flow and cooled crust, volcanic smoke and steam, sky, rain, undergrowth, birds, map overlay, map drawing, compass, character and controller checks with:
 
 ```bash
 npm test

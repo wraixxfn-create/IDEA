@@ -12,6 +12,7 @@ import { createVolcanicTerrain } from './VolcanicTerrain.js';
 import { buildVolcanicFormations as createVolcanicFormationGroup } from './VolcanicFormations.js';
 import { buildVolcanicRocks } from './VolcanicRocks.js';
 import { buildVolcanicDebris } from './VolcanicDebris.js';
+import { buildVolcanicSmoke } from './VolcanicSmoke.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { installCooledCrust } from './CooledCrust.js';
@@ -357,6 +358,12 @@ export class HexMap {
     // ...and the only one with wildlife (see ForestBirds.js).
     this.forestBirds = null;
     this.birds = null;
+    // The breath of the volcano: a few dark plumes from the crater, its breach
+    // and three small vents, and a few pale wisps of steam over two cracks and
+    // the hot margins of the lava. Instanced billboards on one shared clock,
+    // two draw calls in all, with no collider, light or gameplay (see
+    // VolcanicSmoke.js).
+    this.volcanicSmoke = null;
     // One wind clock drives the pine crowns, the grass and the ferns, so the
     // whole biome breathes together instead of in separate rhythms.
     this.windUniforms = createWindUniforms();
@@ -372,6 +379,7 @@ export class HexMap {
     this.buildVolcanicFormations();
     this.buildVolcanicRocks();
     this.buildVolcanicDebris();
+    this.buildVolcanicSmoke();
     this.buildDomeRoofs();
     this.buildSectorLighting();
     this.pineGrove = buildPineGrove(
@@ -512,6 +520,27 @@ export class HexMap {
     this.smallVolcanicDebris = debris;
     this.group.add(debris);
     return debris;
+  }
+
+  /**
+   * The smoke and steam of HEX_SE (see VolcanicSmoke.js): dark plumes over the
+   * crater, the breach and three small vents, and pale wisps over two cracks
+   * and the hot margins of the lava. It is seated on the same baked terrain as
+   * the lava, the rocks and the debris, changes none of them, and carries no
+   * collider, light or gameplay effect.
+   */
+  buildVolcanicSmoke() {
+    const sector = this.sectorById.get('HEX_SE');
+    if (!sector || !this.volcanicTerrain) return null;
+
+    const smoke = buildVolcanicSmoke(this.volcanicTerrain, this.config, {
+      sunDirection: this.sunDirection,
+    });
+    if (!smoke) return null;
+    smoke.group.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
+    this.volcanicSmoke = smoke;
+    this.group.add(smoke.group);
+    return smoke;
   }
 
   /**
@@ -1354,6 +1383,9 @@ export class HexMap {
     for (const sky of this.skies) sky.update(dt);
     this.forestMist?.update(dt);
     this.forestRain?.update(dt);
+    // The plumes and wisps of HEX_SE share a single clock: this is the only
+    // per-frame work the smoke and steam ever do.
+    this.volcanicSmoke?.update(dt);
     // The flock gets the explorer's own position, so a bird can decide that the
     // thing walking towards it is worth leaving for.
     this.forestBirds?.update(dt, playerPosition);
@@ -1482,12 +1514,13 @@ export class HexMap {
   setDebugVisible(visible) {
     this.debugGroup.visible = visible;
     // The sky cupolas would hide the whole map from the overview camera, and
-    // the mist, the rain and the birds would veil it, so they all step aside
-    // while the map is annotated.
+    // the mist, the rain, the birds and the volcanic smoke would veil it, so
+    // they all step aside while the map is annotated.
     if (this.domeGroup) this.domeGroup.visible = !visible;
     if (this.mistLayers) this.mistLayers.visible = !visible;
     this.forestRain?.setVisible(!visible);
     this.forestBirds?.setVisible(!visible);
+    this.volcanicSmoke?.setVisible(!visible);
     // The lava stays: from above it is the clearest landmark the volcanic
     // sector has, so the overview keeps it rather than hiding it.
   }
