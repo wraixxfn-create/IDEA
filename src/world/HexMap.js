@@ -10,6 +10,7 @@ import { buildForestBirds } from './ForestBirds.js';
 import { createForestTerrain } from './ForestTerrain.js';
 import { createVolcanicTerrain } from './VolcanicTerrain.js';
 import { buildLavaPool } from './LavaPool.js';
+import { buildLavaFlow } from './LavaFlow.js';
 import { createWindUniforms } from './wind.js';
 
 function createFloorGeometry(radius) {
@@ -327,9 +328,10 @@ export class HexMap {
     this.forestRain = null;
     this.rain = null;
     // HEX_SE carries the world's only lava: one pool in the floor of its main
-    // crater (see LavaPool.js).
+    // crater and a single downhill outlet (see LavaPool.js / LavaFlow.js).
     this.volcanicLava = null;
     this.lavaPool = null;
+    this.lavaFlow = null;
     // ...and the only one with wildlife (see ForestBirds.js).
     this.forestBirds = null;
     this.birds = null;
@@ -394,16 +396,9 @@ export class HexMap {
   }
 
   /**
-   * The lava of HEX_SE: one pool of molten rock, laid in the floor of the
-   * crater the sector already has. The lake is a level sheet of lava whose
-   * outline is where the baked crater bowl crosses it, and the ground under it
-   * was raised onto the pool's own bed by the terrain bake, so the sheet is the
-   * surface of a real basin in the rock rather than a disc hovering over it.
-   *
-   * One mesh, one material — the reusable lava material of LavaPool.js, shared
-   * with any later lava feature — and nothing else: no second pool, no rivers,
-   * no rocks, no smoke, no particles, no light and no damage. Nothing about it
-   * animates, so nothing about it is ticked.
+   * HEX_SE only: the existing pool and ONE winding flow into the lower basin.
+   * Two static meshes share one lava material. No extra rivers, rocks, smoke,
+   * particles, lights, damage, colliders or per-frame lava updates.
    */
   buildLava() {
     const terrain = this.volcanicTerrain;
@@ -414,6 +409,11 @@ export class HexMap {
     const sector = this.sectorById.get('HEX_SE');
     this.volcanicLava.group.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
     this.group.add(this.volcanicLava.group);
+    this.lavaFlow = buildLavaFlow(terrain, terrain.lavaFlow, this.config);
+    if (this.lavaFlow) {
+      this.lavaFlow.group.position.copy(this.volcanicLava.group.position);
+      this.group.add(this.lavaFlow.group);
+    }
   }
 
   /**

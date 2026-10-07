@@ -836,24 +836,14 @@ function shorelineRadiusAt(heightAt, sampleAt, pool, dirX, dirZ) {
 }
 
 /**
- * Build the pool's molten sheet on a baked terrain and return it with the
- * measurements a caller (or a test) wants to reason about: the shoreline's
- * radii, the area the lava covers and the level it sits at.
- *
- * The pool is one mesh and one material — static geometry, no clock, no
- * particles, no light — and it is the caller's job to add `group` to the
- * sector's group at the sector's own centre, because the geometry is in
- * sector-local coordinates exactly like the terrain it sits in.
- * `options.materialOverrides` can retune the shared lava material for this
- * pool without touching the world configuration.
+ * Capture the closed pool's contour before an outlet is cut. The flow keeps
+ * this shoreline: re-solving it on an open spillway would flood the descending
+ * channel with an extension of the pool's horizontal plane.
  */
-export function buildLavaPool(terrain, pool, config = {}, options = {}) {
+export function measureLavaPoolShoreline(terrain, pool) {
   if (!terrain || !pool) return null;
   const heightAt = (x, z) => terrain.heightAt(x, z);
   const segments = Math.max(24, Math.round(pool.segments));
-  const rings = Math.max(4, Math.round(pool.rings));
-  const bias = Math.min(1, Math.max(0.4, pool.ringBias));
-
   // 1. The shoreline, bearing by bearing. `minShoreRadius` keeps a spur that
   //    runs close past the vent from leaving the fan with slivers; the sheet is
   //    simply buried under the rock there, which is invisible.
@@ -875,6 +865,31 @@ export function buildLavaPool(terrain, pool, config = {}, options = {}) {
   let variance = 0;
   for (let i = 0; i < segments; i += 1) variance += (shoreRadii[i] - meanRadius) ** 2;
   const deviation = Math.sqrt(variance / segments);
+
+  return { radii: shoreRadii, meshRadii, min: minRadius, max: maxRadius, mean: meanRadius, deviation };
+}
+
+/**
+ * Build the pool's molten sheet on a baked terrain and return it with the
+ * measurements a caller (or a test) wants to reason about: the shoreline's
+ * radii, the area the lava covers and the level it sits at.
+ *
+ * The pool is one mesh and one material — static geometry, no clock, no
+ * particles, no light — and it is the caller's job to add `group` to the
+ * sector's group at the sector's own centre, because the geometry is in
+ * sector-local coordinates exactly like the terrain it sits in.
+ * `options.materialOverrides` can retune the shared lava material for this
+ * pool without touching the world configuration.
+ */
+export function buildLavaPool(terrain, pool, config = {}, options = {}) {
+  if (!terrain || !pool) return null;
+  const segments = Math.max(24, Math.round(pool.segments));
+  const rings = Math.max(4, Math.round(pool.rings));
+  const bias = Math.min(1, Math.max(0.4, pool.ringBias));
+
+  const flow = terrain.lavaFlow?.pool === pool ? terrain.lavaFlow : null;
+  const shoreline = flow?.sourceShoreline ?? measureLavaPoolShoreline(terrain, pool);
+  const { radii: shoreRadii, meshRadii, min: minRadius, max: maxRadius, mean: meanRadius, deviation } = shoreline;
 
   // 2. The fan: a centre vertex, then `rings` rings per bearing, all on the
   //    waterline. Ring 0 is the vent, ring `rings` is the shore.
@@ -906,6 +921,14 @@ export function buildLavaPool(terrain, pool, config = {}, options = {}) {
   // and the molten rock itself.
   const seed = pool.seed + 1201;
   const heatAt = (x, z, fraction) => {
+    // Only the outlet is opened in the old chilled rim: the existing pool
+    // stays the same everywhere else, but no cold crossbar dams the flow.
+    const outlet = flow?.outlet;
+    if (outlet) {
+      const angle = Math.atan2(z - pool.z, x - pool.x) - outlet.bearing;
+      const delta = Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)));
+      fraction *= smoothStep(delta, outlet.halfAngle * 0.65, outlet.halfAngle * 1.2);
+    }
     // How far the cooled margin reaches at this bearing, and how dark it goes:
     // both breathe with the ground, because a crust does not spread evenly.
     const breath = fbm(x * 0.042 + 8.3, z * 0.042 - 3.9, seed + 17, 2, 0.5, 2);

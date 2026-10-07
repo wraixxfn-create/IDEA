@@ -196,7 +196,7 @@ test('the relief reads as a volcanic landscape, not as random hills', () => {
   // deep below the crown that surrounds it.
   const vent = h(layout.crater.x, layout.crater.z);
   let crownTop = -Infinity;
-  let crownEdge = Infinity;
+  let highCrownBearings = 0;
   for (let k = 0; k < 72; k += 1) {
     const a = (k / 72) * Math.PI * 2;
     let bearingTop = -Infinity;
@@ -207,10 +207,12 @@ test('the relief reads as a volcanic landscape, not as random hills', () => {
       bearingTop = Math.max(bearingTop, h(x, z));
     }
     crownTop = Math.max(crownTop, bearingTop);
-    crownEdge = Math.min(crownEdge, bearingTop);
+    if (bearingTop > vent + 6) highCrownBearings += 1;
   }
   assert.ok(crownTop > 10, `the massif only reaches ${crownTop}`);
-  assert.ok(crownEdge > vent + 6, `the vent (${vent}) is not below its own rim (${crownEdge})`);
+  // The single lava outlet now breaches one saddle. The rest of the crown
+  // must still stand high above the vent; it has not become a flattened plain.
+  assert.ok(highCrownBearings / 72 > 0.85, `only ${highCrownBearings}/72 crown bearings remain high`);
   assert.ok(maxHeight >= 10, 'the elevated region dominates the sector');
 
   // One lower basin-like region: a bowl well below the surrounding plains,
@@ -324,12 +326,13 @@ test('the crater is the sector landmark: one large, deep, irregular ring', () =>
   // The rim is the high ground of the sector and it is a real climb from the
   // plains outside it — the sloped approach the eye reads from a distance.
   assert.ok(Math.max(...crests) > 10, `the crown only reaches ${Math.max(...crests).toFixed(1)}`);
-  assert.ok(
-    Math.min(...crests) > Math.max(...floors) + 5,
-    'every bearing of the rim stands above the floor it encircles',
-  );
+  const highCrests = crests.filter((crest) => crest > Math.max(...floors) + 5);
+  assert.ok(highCrests.length / crests.length > 0.85, 'most of the rim still towers above its floor');
+  const lowCrests = crests.map((crest) => crest <= Math.max(...floors) + 5);
+  const breaches = lowCrests.filter((low, i) => low && !lowCrests[(i + lowCrests.length - 1) % lowCrests.length]).length;
+  assert.equal(breaches, 1, 'only one saddle is opened for the lava outlet');
 
-  // Deep interior: the vent sits well below the crown all the way round, and
+  // Deep interior: the vent sits well below the crown except at the outlet, and
   // inside the ring the ground only ever rises on the way out — one bowl, not
   // a chain of hollows.
   const vent = h(crater.x, crater.z);
@@ -345,7 +348,8 @@ test('the crater is the sector landmark: one large, deep, irregular ring', () =>
     }
     profile.push(sum / 120);
   }
-  assert.ok(vent < Math.min(...crests) - 6, `the vent (${vent}) is not deep below its rim`);
+  assert.ok(crests.filter((crest) => crest > vent + 6).length / crests.length > 0.85,
+    `the vent (${vent}) remains deep below the crown outside the single spillway`);
   assert.ok(
     profile[profile.length - 1] - profile[0] > 8,
     `the bowl only spans ${(profile[profile.length - 1] - profile[0]).toFixed(1)} units`,
