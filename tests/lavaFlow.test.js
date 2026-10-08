@@ -333,7 +333,7 @@ test('the one secondary cut stays narrow, downhill, and clear of vents, gates an
   assert.deepEqual(far, { crust: 0, ember: 0 }, 'branch shading cannot stain the rest of the sector');
 });
 
-test('the world adds exactly one static side branch, without smoke, rocks, damage or lava updates', () => {
+test('the world adds exactly one side branch, without smoke, rocks, damage or its own update loop', () => {
   const map = world();
   const off = new HexMap(new THREE.Scene(), { ...MAP_CONFIG, lavaFlowEnabled: false });
   assert.equal(map.group.children.length, off.group.children.length + 2, 'one main mesh and one secondary mesh');
@@ -358,10 +358,11 @@ test('the world adds exactly one static side branch, without smoke, rocks, damag
   ]), 'one old pool, the original flow, and exactly one smaller branch');
   for (const feature of [map.lavaFlow, map.lavaSecondaryFlow]) {
     assert.equal(feature.update, undefined);
-    assert.equal(feature.group.userData.animates, false);
+    // Its motion is the molten rock's shader churn on the shared lava clock.
+    assert.equal(feature.group.userData.animates, true);
     assert.equal(feature.group.userData.particles, 0);
     assert.equal(feature.group.userData.lights, 0);
-    assert.equal(feature.material.userData.lava.animates, false);
+    assert.equal(feature.material.userData.lava.animates, true);
     for (const object of [feature, feature.flow, feature.mesh.userData]) {
       for (const key of ['damage', 'trigger', 'collision', 'update']) assert.equal(object[key], undefined);
     }

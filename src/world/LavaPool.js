@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import {
+  animatedLavaMaterialKey,
+  LAVA_CLOCK,
+  patchLavaAnimation,
+  resolveLavaAnimation,
+} from './LavaAnimation.js';
 
 /**
  * LavaPool — the single lava pool of HEX_SE, and the reusable material it and
@@ -47,10 +53,12 @@ import * as THREE from 'three';
  *    fountain) drawn in the same sector shares one material, one texture and
  *    one draw state.
  *
- * Deliberately absent, because this step is only about the pool: no animation
- * (the sheet is static geometry with no clock in it), no particles, no smoke,
- * no light source and no gameplay effect. `buildLavaPool` returns no `update`,
- * so there is nothing to tick.
+ * The molten rock moves, and only the molten rock: the shared material carries
+ * the slow churn of the heat (src/world/LavaAnimation.js), driven by the one
+ * lava clock, and the sheet's own geometry and vertex colours stay static. No
+ * particles, no smoke, no light source and no gameplay effect. `buildLavaPool`
+ * returns no `update`: the clock is shared by every lava surface and is ticked
+ * once per frame by the world, not by the pool.
  */
 
 /* ---- Small maths -------------------------------------------------------- */
@@ -561,6 +569,7 @@ export const LAVA_MATERIAL_DEFAULTS = Object.freeze({
 
 const lavaMaterialCache = new Map();
 
+
 /**
  * The whole look of a lava surface, from configuration alone.
  *
@@ -587,7 +596,10 @@ export function createLavaMaterial(config = {}, overrides = {}) {
     crustSeed: config.lavaCrustSeed ?? LAVA_MATERIAL_DEFAULTS.crustSeed,
     ...overrides,
   };
-  const key = `${settings.color}|${settings.emissive}|${settings.emissiveIntensity}|${settings.roughness}|${settings.metalness}|${settings.crustTextureSize}|${settings.crustTile}|${settings.crustCells}|${settings.crustSeed}`;
+  // The molten rock's motion is part of the look, so it is part of the key:
+  // a palette with the animation off is a different (static) material.
+  const animation = resolveLavaAnimation(config);
+  const key = `${settings.color}|${settings.emissive}|${settings.emissiveIntensity}|${settings.roughness}|${settings.metalness}|${settings.crustTextureSize}|${settings.crustTile}|${settings.crustCells}|${settings.crustSeed}|${animation ? animatedLavaMaterialKey(animation) : 'static'}`;
   const cached = lavaMaterialCache.get(key);
   if (cached) return cached;
 
@@ -607,16 +619,30 @@ export function createLavaMaterial(config = {}, overrides = {}) {
   // leaves the emission uniform. Multiplying the emissive by the same colour is
   // what makes the sheet's own heat map — cold crust at the margin, molten rock
   // in the middle — govern the glow as well as the albedo.
+  const animationReport = { landed: 0, missing: [] };
   material.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       '#include <color_fragment>\n\ttotalEmissiveRadiance *= vColor.rgb;',
     );
+    if (animation) {
+      // A program can be rebuilt (a switch, a context loss): count this compile only.
+      animationReport.landed = 0;
+      animationReport.missing = [];
+      patchLavaAnimation(shader, animation, animationReport);
+    }
   };
+  if (animation) {
+    material.customProgramCacheKey = () => animatedLavaMaterialKey(animation);
+  }
   material.userData.lava = {
     // What the material was built from, and how it is meant to be used: a
-    // static, emissive, vertex-coloured surface with no clock in it.
-    animates: false,
+    // vertex-coloured, emissive surface whose molten rock churns on the shared
+    // lava clock. The crust, the rafts and the chilled margin stay still.
+    animates: Boolean(animation),
+    animation: animation ?? null,
+    clock: animation ? LAVA_CLOCK : null,
+    patches: animationReport,
     crustTile: settings.crustTile,
     emissiveIntensity: settings.emissiveIntensity,
     textureSize: settings.crustTextureSize,
@@ -897,6 +923,9 @@ export function buildLavaPool(terrain, pool, config = {}, options = {}) {
   const positions = new Float32Array(vertexCount * 3);
   const colors = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
+  // The animation's own coordinates (see LavaAnimation.js): for the pool, the
+  // offset from the vent, with kind 0 (a pool) and no cross-bed position.
+  const flowCoords = new Float32Array(vertexCount * 4);
   const tile = Math.max(1, config.lavaCrustTile ?? LAVA_MATERIAL_DEFAULTS.crustTile);
   const uvCos = Math.cos(0.37);
   const uvSin = Math.sin(0.37);
@@ -906,6 +935,8 @@ export function buildLavaPool(terrain, pool, config = {}, options = {}) {
     positions[index * 3] = x;
     positions[index * 3 + 1] = surface;
     positions[index * 3 + 2] = z;
+    flowCoords[index * 4] = x - pool.x;
+    flowCoords[index * 4 + 1] = z - pool.z;
     colors[index * 3] = heat.r;
     colors[index * 3 + 1] = heat.g;
     colors[index * 3 + 2] = heat.b;
@@ -1011,6 +1042,7 @@ export function buildLavaPool(terrain, pool, config = {}, options = {}) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('aLavaFlow', new THREE.BufferAttribute(flowCoords, 4));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   // The sheet is a plane: its normal is the world's up everywhere, which is
   // exactly what the level surface of a liquid looks like under the sky.
@@ -1051,7 +1083,7 @@ export function buildLavaPool(terrain, pool, config = {}, options = {}) {
   group.userData.meshes = 1;
   group.userData.lights = 0;
   group.userData.particles = 0;
-  group.userData.animates = false;
+  group.userData.animates = material.userData.lava.animates;
   group.add(mesh);
 
   geometry.userData.lava = {

@@ -16,6 +16,7 @@ import { buildVolcanicSmoke } from './VolcanicSmoke.js';
 import { buildVolcanicAtmosphere } from './VolcanicAtmosphere.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
+import { advanceLavaClock } from './LavaAnimation.js';
 import { installCooledCrust } from './CooledCrust.js';
 import { createVolcanicBorderMaterial, createVolcanicGroundMaterial } from './VolcanicMaterials.js';
 import { createWindUniforms } from './wind.js';
@@ -436,8 +437,9 @@ export class HexMap {
 
   /**
    * HEX_SE only: the existing pool, its main outlet and one smaller side
-   * branch. Three static meshes share one lava material. No rocks, smoke,
-   * particles, lights, damage, colliders or per-frame lava updates.
+   * branch. Three meshes share one lava material. Only their molten rock
+   * moves, on the shared lava clock (see LavaAnimation.js); no rocks, smoke,
+   * particles, lights, damage or colliders.
    */
   buildLava() {
     const terrain = this.volcanicTerrain;
@@ -1410,6 +1412,9 @@ export class HexMap {
     for (const sky of this.skies) sky.update(dt);
     this.forestMist?.update(dt);
     this.forestRain?.update(dt);
+    // The molten surfaces of HEX_SE read one shared lava clock: the pool's slow
+    // churn and the flow along both channels advance from this single addition.
+    advanceLavaClock(dt);
     // The plumes and wisps of HEX_SE share a single clock: this is the only
     // per-frame work the smoke and steam ever do.
     this.volcanicSmoke?.update(dt);

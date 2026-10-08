@@ -358,7 +358,8 @@ export const MAP_CONFIG = Object.freeze({
   // crater bowl crosses it, ringed by the cooled bank of crust it threw up
   // around its own edge. One main flow leaves the pool for the lower basin;
   // one much narrower branch leaves that channel for a southern low hollow.
-  // Both flows are inert: no animation, particles, smoke, light or damage.
+  // The molten surfaces are animated only by their shared lava clock (see the
+  // lavaAnimation keys below): no particles, smoke, light or damage.
   // `lavaPool` is plain data (placement, depth, bank, mesh resolution) and
   // `false` removes the pool outright; `lavaPoolEnabled: false` does the same
   // from the switchboard. The material below is reusable on purpose: any later
@@ -406,6 +407,18 @@ export const MAP_CONFIG = Object.freeze({
   lavaCrustCells: 7,
   lavaCrustTextureSize: 256,
   lavaCrustSeed: 0x1a7a5eed,
+  // The molten rock moves (src/world/LavaAnimation.js): a slow, sheared flow
+  // down both channels, following their spines, and a churning heat in the
+  // pool, all on one shared lava clock. Only the molten rock moves; the cooled
+  // crust, the rafts and the chilled margins keep their static colour and
+  // shape, and the geometry, vertex colours and boundaries never change.
+  // `flowSpeed` is the centre-line speed in sector units per second, `swirl`
+  // the pool's convection at its vent (radians per second) and `core` the bloom
+  // where the heat peaks. `lavaAnimationEnabled: false` (or `lavaAnimation:
+  // false` / `null`) returns every lava surface to its static look; the other
+  // look settings are plain data in `LAVA_ANIMATION_DEFAULTS`.
+  lavaAnimationEnabled: true,
+  lavaAnimation: Object.freeze({ flowSpeed: 0.32, swirl: 0.04, core: 0.32 }),
   // The cooled crust on the *ground* around that lava (src/world/CooledCrust.js):
   // dark black plates, cracked sections between them and a dull red heat that
   // survives next to the molten rock. It is measured from the lava that already

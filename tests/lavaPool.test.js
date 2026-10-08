@@ -342,12 +342,13 @@ test('one reusable lava material, built from configuration alone', () => {
   assert.notEqual(other, a, 'a different palette is a different material');
 
   // The whole look: an emissive, vertex-coloured standard surface skinned with
-  // the crust tile — no time, no noise shader, nothing to animate.
+  // the crust tile. Its molten rock churns on the shared lava clock (see
+  // lavaAnimation.test.js); the crust itself is never animated.
   assert.equal(a.vertexColors, true);
   assert.equal(a.emissiveIntensity, MAP_CONFIG.lavaEmissiveIntensity ?? LAVA_MATERIAL_DEFAULTS.emissiveIntensity);
   assert.ok(a.emissiveMap && a.map, 'the crust skin drives both the albedo and the emission');
   assert.equal(a.map, a.emissiveMap);
-  assert.equal(a.userData.lava.animates, false);
+  assert.equal(a.userData.lava.animates, true);
   assert.equal(a.map.wrapS, THREE.RepeatWrapping);
   assert.equal(a.map.wrapT, THREE.RepeatWrapping);
   assert.equal(a.map.colorSpace, THREE.SRGBColorSpace);
@@ -425,10 +426,10 @@ test('the world carries the pool: one mesh, static, and only one of it', () => {
     [sector.center.x, MAP_CONFIG.floorHeight, sector.center.z],
   );
 
-  // Inert on purpose: no clock, no particles, no light, no second pool, and
-  // nothing anywhere in the world with a lava-shaped update loop.
+  // Its only motion is the molten rock's shader churn on the shared lava clock:
+  // no per-pool update loop, no particles, no light, no second pool.
   assert.equal(lava.update, undefined);
-  assert.equal(lava.group.userData.animates, false);
+  assert.equal(lava.group.userData.animates, true);
   assert.equal(lava.group.userData.particles, 0);
   assert.equal(lava.group.userData.lights, 0);
   assert.equal(lava.group.userData.meshes, 1);
