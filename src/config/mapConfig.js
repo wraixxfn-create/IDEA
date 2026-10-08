@@ -456,6 +456,14 @@ export const MAP_CONFIG = Object.freeze({
   // the source list are plain data in `VOLCANIC_SMOKE_DEFAULTS`, overridable
   // through `volcanicSmoke`.
   volcanicSmokeEnabled: true,
+  // The visual atmosphere pass of HEX_SE (src/world/VolcanicAtmosphere.js): a
+  // breath of distant haze, a thin fall of ash, a shimmer of heat over the
+  // molten rock and a faint warm glow beside it. Four draw calls, two small
+  // lights, no collider and no gameplay. `volcanicAtmosphereEnabled: false`
+  // (or `volcanicAtmosphere: false` / `null`) removes it without a trace; the
+  // look is plain data in `VOLCANIC_ATMOSPHERE_DEFAULTS`, overridable through
+  // `volcanicAtmosphere`.
+  volcanicAtmosphereEnabled: true,
   sectorColors: SECTOR_COLORS,
 });
 
