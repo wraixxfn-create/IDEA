@@ -13,6 +13,7 @@ import { buildVolcanicFormations as createVolcanicFormationGroup } from './Volca
 import { buildVolcanicRocks } from './VolcanicRocks.js';
 import { buildVolcanicDebris } from './VolcanicDebris.js';
 import { buildVolcanicSmoke } from './VolcanicSmoke.js';
+import { buildVolcanicAtmosphere } from './VolcanicAtmosphere.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { installCooledCrust } from './CooledCrust.js';
@@ -364,6 +365,10 @@ export class HexMap {
     // two draw calls in all, with no collider, light or gameplay (see
     // VolcanicSmoke.js).
     this.volcanicSmoke = null;
+    // The atmosphere of HEX_SE (see VolcanicAtmosphere.js): distant haze, ash,
+    // heat shimmer over the lava and a faint warm glow beside it. Four draw
+    // calls, two small lights, no collider and no gameplay.
+    this.volcanicAtmosphere = null;
     // One wind clock drives the pine crowns, the grass and the ferns, so the
     // whole biome breathes together instead of in separate rhythms.
     this.windUniforms = createWindUniforms();
@@ -380,6 +385,7 @@ export class HexMap {
     this.buildVolcanicRocks();
     this.buildVolcanicDebris();
     this.buildVolcanicSmoke();
+    this.buildVolcanicAtmosphere();
     this.buildDomeRoofs();
     this.buildSectorLighting();
     this.pineGrove = buildPineGrove(
@@ -541,6 +547,27 @@ export class HexMap {
     this.volcanicSmoke = smoke;
     this.group.add(smoke.group);
     return smoke;
+  }
+
+  /**
+   * The atmosphere of HEX_SE (see VolcanicAtmosphere.js): a breath of distant
+   * haze, a thin fall of ash, a shimmer of heat over the molten rock and a
+   * faint warm glow beside it. It is seated on the same baked terrain as the
+   * lava and the smoke, changes none of them, and carries no collider, damage
+   * or gameplay effect.
+   */
+  buildVolcanicAtmosphere() {
+    const sector = this.sectorById.get('HEX_SE');
+    if (!sector || !this.volcanicTerrain) return null;
+
+    const atmosphere = buildVolcanicAtmosphere(this.volcanicTerrain, this.config, {
+      sunDirection: this.sunDirection,
+    });
+    if (!atmosphere) return null;
+    atmosphere.group.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
+    this.volcanicAtmosphere = atmosphere;
+    this.group.add(atmosphere.group);
+    return atmosphere;
   }
 
   /**
@@ -1386,6 +1413,9 @@ export class HexMap {
     // The plumes and wisps of HEX_SE share a single clock: this is the only
     // per-frame work the smoke and steam ever do.
     this.volcanicSmoke?.update(dt);
+    // The atmosphere beside it: one clock, two drifting haze discs and two
+    // breathing glow lights.
+    this.volcanicAtmosphere?.update(dt);
     // The flock gets the explorer's own position, so a bird can decide that the
     // thing walking towards it is worth leaving for.
     this.forestBirds?.update(dt, playerPosition);
@@ -1521,6 +1551,7 @@ export class HexMap {
     this.forestRain?.setVisible(!visible);
     this.forestBirds?.setVisible(!visible);
     this.volcanicSmoke?.setVisible(!visible);
+    this.volcanicAtmosphere?.setVisible(!visible);
     // The lava stays: from above it is the clearest landmark the volcanic
     // sector has, so the overview keeps it rather than hiding it.
   }

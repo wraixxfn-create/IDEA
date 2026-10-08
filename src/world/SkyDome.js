@@ -191,6 +191,7 @@ export function cloudThresholdFor(coverage, softnessHint = 0.075) {
 export function createSkyPalette(sector, config = MAP_CONFIG) {
   const info = getSectorInfo(sector.id, sector.order);
   const isForest = sector.id === 'HEX_S';
+  const isVolcanic = sector.id === 'HEX_SE';
   const strength = config.skyTintStrength ?? 0.28;
   const accent = new THREE.Color(info.accent ?? info.color);
   const pastel = accent.clone().lerp(WHITE, 0.45);
@@ -211,6 +212,14 @@ export function createSkyPalette(sector, config = MAP_CONFIG) {
     zenith = new THREE.Color(config.skyZenithColor ?? 0x2a6fc0).lerp(deep, strength);
     horizon = new THREE.Color(config.skyHorizonColor ?? 0xa9cfe4).lerp(pastel, strength * 0.9);
     haze = new THREE.Color(config.skyHazeColor ?? 0xe6eff3).lerp(pastel, strength * 0.75);
+    if (isVolcanic) {
+      // A slight volcanic gloom, HEX_SE only: the ash in the air dims the sky
+      // a touch. Uniform scaling keeps the blue dominance the other cupolas
+      // share, so the sector darkens without turning red.
+      zenith.multiplyScalar(0.93);
+      horizon.multiplyScalar(0.95);
+      haze.multiplyScalar(0.97);
+    }
   }
 
   const cloudLight = new THREE.Color(config.cloudLightColor ?? 0xfffaf1).lerp(pastel, 0.08);
@@ -227,6 +236,7 @@ export function createSkyPalette(sector, config = MAP_CONFIG) {
   return {
     info,
     isForest,
+    isVolcanic,
     cloudThreshold: threshold,
     cloudSoftness: softness,
     zenith,
@@ -236,7 +246,9 @@ export function createSkyPalette(sector, config = MAP_CONFIG) {
     cloudShadow,
     sunGlow: isForest
       ? (config.forestSunGlowStrength ?? config.sunGlowStrength ?? 1.05)
-      : (config.sunGlowStrength ?? 0.95),
+      : (isVolcanic
+        ? (config.sunGlowStrength ?? 0.95) * 0.88
+        : (config.sunGlowStrength ?? 0.95)),
     cloudCoverage: isForest
       ? (config.forestCloudCoverage ?? 0.42)
       : (config.cloudCoverage ?? 0.28),
