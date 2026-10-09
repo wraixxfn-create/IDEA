@@ -157,6 +157,19 @@ Under the landmarks and the medium rocks sits the last and quietest layer of the
 - **The walking areas stay clear.** No piece lies in a portal apron (the apron radius plus 4 units), inside 8 units of the two direct routes from every gate — to the crater and to the sector centre — inside 0.74 of the crater's rim radius (unless it belongs to the band that hugs the pool), inside a landmark's footprint, buried inside a medium rock, on the lava itself, or within **0.35 units** of any molten edge. The debris follows the medium rocks that are actually standing, so the two layers sit together instead of through one another.
 - **Nothing else moves, and no new system exists.** The planner only samples the final baked terrain to seat each instance: it writes **no height, no attribute, no carve and no collider**, adds no light, no particle, no gameplay system and no animation, and nothing from it enters the update loop. Rebuilding it against the same terrain reproduces the same instance matrices and the same twelve geometries exactly; the lattice, the collision surface, the crater, the vents, the lava pool, both channels, the cooled crust, all six formations and the medium rocks are bit-for-bit untouched. `volcanicDebrisEnabled: false` (or `volcanicDebris: false` / `null`) removes the layer without a trace, and the scatter's own numbers — count, size range, zone weights, the four bands, the per-cell cap, the clearances, spacing and seed — are plain data in `VOLCANIC_DEBRIS_DEFAULTS`, overridable through `mapConfig.volcanicDebris`.
 
+### Additional lava in the hollows
+
+`LavaBasins.js` adds a generous, contour-measured lava fill in the lower western
+bowl of HEX_SE (over 3,000 square units). It tries the smaller depressions too,
+but rejects any fill that cannot stay enclosed and clear of portals and major
+formations. No terrain height, collision buffer, vent, crater pool or channel
+is modified. The new sheet shares the existing lava material, floating crust
+texture and animation clock; its shoreline also receives the same cooled crust
+on the ground. Rocks and debris respect the new molten edge.
+`lavaBasinsEnabled: false` restores the original three molten surfaces;
+`lavaBasins.fillFraction` controls the requested fill, reduced automatically
+where needed to avoid spilling out of a hollow.
+
 ### The lava pool
 
 `src/world/LavaPool.js` adds the sector's single pool of molten rock, in the floor of that main crater. It is one level sheet, one mesh and one material, and the whole of it follows from three decisions.

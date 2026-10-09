@@ -364,6 +364,9 @@ export const MAP_CONFIG = Object.freeze({
   // `false` removes the pool outright; `lavaPoolEnabled: false` does the same
   // from the switchboard. The material below is reusable on purpose: any later
   // lava feature drawn with `createLavaMaterial(config)` shares this look.
+  // Generous fills in existing enclosed hollows, without modifying relief.
+  lavaBasinsEnabled: true,
+  lavaBasins: Object.freeze({ fillFraction: 0.72 }),
   lavaPoolEnabled: true,
   lavaPool: Object.freeze({
     // Sector-local placement: a few units south-west of the crater's vent

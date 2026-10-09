@@ -303,6 +303,10 @@ export function planCooledCrust(terrain, config = {}) {
   const shoreline = terrain.lavaFlow?.sourceShoreline ?? measureLavaPoolShoreline(terrain, pool);
   if (!shoreline?.radii?.length) return null;
 
+  const basinCrusts = (terrain.lavaBasins ?? []).map(({ pool }) => planCooledCrust({
+    sectorId: terrain.sectorId, lavaPool: pool,
+    heightAt: (x, z) => terrain.heightAt(x, z),
+  }, config)).filter(Boolean);
   const settings = resolveCrustSettings(override);
   const material = resolveCooledCrustMaterial(config);
   const seed = (0xc001ed00 ^ Math.imul(settings.seedOffset | 0, 0x9e3779b1)) >>> 0;
@@ -331,7 +335,10 @@ export function planCooledCrust(terrain, config = {}) {
     }
   }
 
+  for (const basin of basinCrusts) bounds.union(basin.bounds);
+
   return Object.freeze({
+    basinCrusts: Object.freeze(basinCrusts),
     id: settings.id,
     seed,
     settings,
@@ -352,6 +359,7 @@ export function planCooledCrust(terrain, config = {}) {
     sources: Object.freeze([
       pool.id,
       ...channels.map((channel) => channel.flow.id),
+      ...basinCrusts.map((basin) => basin.pool.id),
     ]),
   });
 }
@@ -481,6 +489,13 @@ export function cooledCrustFieldAt(x, z, height, crust) {
     }
   }
 
+  for (const basin of crust.basinCrusts ?? []) {
+    const field = cooledCrustFieldAt(x, z, height, basin);
+    if (field.coverage > coverage) {
+      coverage = field.coverage;
+      heat = field.heat;
+    }
+  }
   return { coverage: clamp01(coverage), heat: clamp01(heat) };
 }
 
