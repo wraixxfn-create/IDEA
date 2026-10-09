@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { planLavaBasins } from './LavaBasins.js';
 import { ForestTerrain } from './ForestTerrain.js';
 import { carveVolcanicVents, planVolcanicVentLayout, ventShadeAt } from './VolcanicVents.js';
 import { carveLavaPool, lavaPoolShadeAt, planLavaPool } from './LavaPool.js';
@@ -349,6 +350,7 @@ export class VolcanicTerrain extends ForestTerrain {
     // own shoreline and both channel spines — and it moves nothing: it writes
     // one attribute onto the lattice the ground is already drawn with, so the
     // heights, the collision surface and every statistic above stay as baked.
+    this.lavaBasins = planLavaBasins(this, config);
     this.cooledCrust = planCooledCrust(this, config);
     this.geometry.dispose();
     this.geometry = this.createGeometry();

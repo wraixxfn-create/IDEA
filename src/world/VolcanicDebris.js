@@ -484,7 +484,7 @@ function buildClearanceModel(terrain, config, options = {}) {
     return { x: rock.x, z: rock.z, radius: Math.max(0.2, span * 0.5) };
   }).filter((rock) => Number.isFinite(rock.x) && Number.isFinite(rock.z));
 
-  return { crater, pool, shoreline, channels, gates, formations, routes, mediumRocks };
+  return { basins: terrain.lavaBasins ?? [], crater, pool, shoreline, channels, gates, formations, routes, mediumRocks };
 }
 
 /**

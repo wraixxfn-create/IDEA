@@ -451,7 +451,7 @@ function buildClearanceModel(terrain, config, options = {}) {
     }
   }
 
-  return { crater, pool, shoreline, channels, gates, formations, routes };
+  return { basins: terrain.lavaBasins ?? [], crater, pool, shoreline, channels, gates, formations, routes };
 }
 
 /**
@@ -463,6 +463,10 @@ export function lavaEdgeDistance(model, x, z) {
   if (model.pool && model.shoreline) {
     const distance = Math.hypot(x - model.pool.x, z - model.pool.z);
     nearest = Math.min(nearest, distance - shoreRadiusAt(model.shoreline, model.pool, x, z));
+  }
+  for (const basin of model.basins ?? []) {
+    const distance = Math.hypot(x - basin.pool.x, z - basin.pool.z);
+    nearest = Math.min(nearest, distance - shoreRadiusAt(basin.shoreline, basin.pool, x, z));
   }
   for (const channel of model.channels) {
     const sample = lavaFlowSampleAt(x, z, channel);

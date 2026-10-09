@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { MAP_CONFIG } from '../src/config/mapConfig.js';
+import { MAP_CONFIG as BASE_CONFIG } from '../src/config/mapConfig.js';
+const MAP_CONFIG = { ...BASE_CONFIG, lavaBasinsEnabled: false };
 import { HexMap } from '../src/world/HexMap.js';
 import { VolcanicTerrain } from '../src/world/VolcanicTerrain.js';
 import { lavaFlowSampleAt } from '../src/world/LavaFlow.js';

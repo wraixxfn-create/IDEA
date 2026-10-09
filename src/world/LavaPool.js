@@ -914,7 +914,7 @@ export function buildLavaPool(terrain, pool, config = {}, options = {}) {
   const bias = Math.min(1, Math.max(0.4, pool.ringBias));
 
   const flow = terrain.lavaFlow?.pool === pool ? terrain.lavaFlow : null;
-  const shoreline = flow?.sourceShoreline ?? measureLavaPoolShoreline(terrain, pool);
+  const shoreline = options.shoreline ?? flow?.sourceShoreline ?? measureLavaPoolShoreline(terrain, pool);
   const { radii: shoreRadii, meshRadii, min: minRadius, max: maxRadius, mean: meanRadius, deviation } = shoreline;
 
   // 2. The fan: a centre vertex, then `rings` rings per bearing, all on the

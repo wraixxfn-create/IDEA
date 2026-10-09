@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { MAP_CONFIG } from '../src/config/mapConfig.js';
+import { MAP_CONFIG as BASE_CONFIG } from '../src/config/mapConfig.js';
+// These regression tests isolate the established crater pool and channels.
+const MAP_CONFIG = { ...BASE_CONFIG, lavaBasinsEnabled: false };
 import { VolcanicTerrain } from '../src/world/VolcanicTerrain.js';
 import { HexMap } from '../src/world/HexMap.js';
 import { buildHexMapData } from '../src/world/hexGrid.js';

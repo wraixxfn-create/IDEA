@@ -14,6 +14,7 @@ import { buildVolcanicRocks } from './VolcanicRocks.js';
 import { buildVolcanicDebris } from './VolcanicDebris.js';
 import { buildVolcanicSmoke } from './VolcanicSmoke.js';
 import { buildVolcanicAtmosphere } from './VolcanicAtmosphere.js';
+import { buildLavaBasins } from './LavaBasins.js';
 import { buildLavaPool } from './LavaPool.js';
 import { buildLavaFlow, buildLavaSecondaryFlow } from './LavaFlow.js';
 import { advanceLavaClock } from './LavaAnimation.js';
@@ -341,6 +342,7 @@ export class HexMap {
     this.lavaPool = null;
     this.lavaFlow = null;
     this.lavaSecondaryFlow = null;
+    this.lavaBasins = [];
     // Six large, static basalt formations are independent meshes seated on the
     // final HEX_SE relief; they do not alter that terrain or any lava surface.
     this.volcanicFormations = null;
@@ -450,6 +452,11 @@ export class HexMap {
     const sector = this.sectorById.get('HEX_SE');
     this.volcanicLava.group.position.set(sector.center.x, this.config.floorHeight, sector.center.z);
     this.group.add(this.volcanicLava.group);
+    this.lavaBasins = buildLavaBasins(terrain, this.config);
+    for (const basin of this.lavaBasins) {
+      basin.group.position.copy(this.volcanicLava.group.position);
+      this.group.add(basin.group);
+    }
     this.lavaFlow = buildLavaFlow(terrain, terrain.lavaFlow, this.config);
     if (this.lavaFlow) {
       this.lavaFlow.group.position.copy(this.volcanicLava.group.position);
