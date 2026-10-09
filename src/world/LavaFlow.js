@@ -10,7 +10,10 @@ import { createLavaMaterial, LAVA_MATERIAL_DEFAULTS, measureLavaPoolShoreline } 
  * old ground would run uphill. First measure a descending profile against the
  * baked relief, then cut its bed into that same collision/render lattice.
  * Only the bed and the slopes needed to join it to the old ground are cut.
- * The surface is a static, crust-edged tongue, not a water shader or a hazard.
+ * The surface is a crust-edged tongue of molten rock whose molten centre moves
+ * downstream along the spine (see LavaAnimation.js). It is not a water shader
+ * or a hazard: the motion is confined to the molten rock, and the channel's
+ * geometry and vertex colours never change.
  */
 export const LAVA_FLOW_DEFAULTS = Object.freeze({
   id: 'lava-flow-hex-se',
@@ -365,6 +368,9 @@ export function buildLavaFlow(terrain, flow, config = {}) {
   const positions = new Float32Array(vertexCount * 3);
   const colors = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
+  // The animation's own coordinates (see LavaAnimation.js): along the spine,
+  // across the bed, kind 1 (a channel) and the cross fraction of the bed.
+  const flowCoords = new Float32Array(vertexCount * 4);
   const indices = [];
   const tile = Math.max(1, config.lavaCrustTile ?? LAVA_MATERIAL_DEFAULTS.crustTile);
   const color = new THREE.Color();
@@ -381,9 +387,12 @@ export function buildLavaFlow(terrain, flow, config = {}) {
     const seat = Math.max(edge, toe);
     const y = mix(p.y, Math.min(p.y, ground + flow.lift), seat);
     positions.set([x, y, z], v * 3);
+    // Along the spine, the signed offset across the bed, kind 1, cross fraction.
+    flowCoords.set([p.s, cross * side, 1, cross], v * 4);
 
     // Frozen streaks of cooling skin stretch down the current. These are only
-    // vertex colours: there is no time uniform, moving UV, light or particle.
+    // vertex colours and stay where they are; the molten rock's motion lives
+    // in the shader, masked to the same heat, and never touches them.
     const streak = Math.sin(cross * 14 + noise(p.s * 0.065, flow.seed + 71) * 2.3);
     const raft = smooth(0.1, 0.75, noise(p.s * 0.16 + cross * 1.7, flow.seed + 211)) * (0.5 + 0.5 * streak);
     const grain = 0.5 + 0.5 * noise(p.s * 0.8 + cross * 3.8, flow.seed + 449);
@@ -418,6 +427,7 @@ export function buildLavaFlow(terrain, flow, config = {}) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('aLavaFlow', new THREE.BufferAttribute(flowCoords, 4));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
@@ -443,7 +453,7 @@ export function buildLavaFlow(terrain, flow, config = {}) {
   group.name = `${featureName}_HEX_SE`;
   group.userData = {
     sectorId: 'HEX_SE', flowId: flow.id, parentFlowId: flow.parentFlowId ?? null,
-    poolId: flow.pool.id, meshes: 1, animates: false, particles: 0, lights: 0, area,
+    poolId: flow.pool.id, meshes: 1, animates: material.userData.lava.animates, particles: 0, lights: 0, area,
   };
   group.add(mesh);
   geometry.userData.lava = {
